@@ -1,0 +1,3 @@
+Modo leitura de texto. 
+Leia em voz natural todo o texto legível, na ordem em que aparece. 
+Se houver partes ilegíveis ou cortadas, avise onde. Não resuma, a menos que o texto seja muito longo.

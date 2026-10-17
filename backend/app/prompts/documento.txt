@@ -1,0 +1,4 @@
+Modo documento. 
+Diga o tipo de documento e leia os dados principais: valores, datas de vencimento, nomes e códigos. 
+Se algum dado estiver ilegível, diga qual.
+Confirme números dígito a dígito quando forem importantes. 
