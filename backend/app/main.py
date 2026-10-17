@@ -5,14 +5,26 @@ import secrets
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import StreamingResponse
+
 from PIL import Image
+from contextlib import asynccontextmanager
+from .vision import aquecer, descrever_stream
 
 from .boleto import validar_boleto
 from .config import settings
 from .schemas import BoletoRequest, DescreverRequest
-from .vision import descrever_stream
 
-app = FastAPI(title="Descritor")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        await aquecer()
+        print("Modelo carregado.")
+    except Exception as erro:
+        print(f"Aviso: não consegui carregar o modelo agora ({erro}).")
+    yield
+
+
+app = FastAPI(title="Farol", lifespan=lifespan)
 
 
 def autenticar(authorization: str = Header(default="")) -> None:

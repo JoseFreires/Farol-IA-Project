@@ -20,7 +20,7 @@ Aplicativo que usa a câmera do celular e uma IA de visão para **descrever em v
 ## Estrutura do repositório
 
 ```
-descritor/
+farol/
 ├── backend/
 │   ├── app/
 │   │   ├── prompts/        # base.txt + um arquivo por modo
