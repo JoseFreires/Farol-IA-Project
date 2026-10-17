@@ -10,6 +10,8 @@ from .ocr import ler_texto
 
 client = AsyncClient(host=settings.ollama_host)
 
+TOKENS = {"resumo": 160, "normal": 500, "completo": 900}
+
 OPCOES = {
     "num_predict": 500,
     "temperature": 0.2,
@@ -36,7 +38,7 @@ def _mensagens(req: DescreverRequest, ocr: str = "") -> list[dict]:
             + ocr[:1500]
         )
     msgs: list[dict] = [
-        {"role": "system", "content": montar_system(req.modo)},
+        {"role": "system", "content": montar_system(req.modo, req.detalhe)},
         {"role": "user", "content": pedido, "images": [req.imagem_base64]},
     ]
     for m in req.historico:
@@ -56,7 +58,7 @@ async def descrever_stream(req: DescreverRequest) -> AsyncIterator[str]:
         messages=_mensagens(req, ocr),
         stream=True,
         keep_alive=settings.ollama_keep_alive,
-        options=OPCOES,
+        options={**OPCOES, "num_predict": TOKENS[req.detalhe]},
     )
     async for parte in stream:
         texto = parte["message"]["content"]
