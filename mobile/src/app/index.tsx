@@ -1,206 +1,144 @@
-import { useEffect, useRef, useState } from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import { CameraView, useCameraPermissions } from "expo-camera";
-import * as Haptics from "expo-haptics";
-import * as ImageManipulator from "expo-image-manipulator";
+import { useRef, useState } from "react";
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { router } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { descrever, Mensagem, Modo } from "../services/api";
-import { criarNarrador, falar, parar } from "../services/fala";
+import { Botao } from "../components/Botao";
+import { Logo } from "../components/Logo";
+import { cores, espaco, fonte, raio } from "../theme/tema";
 
-// O módulo de voz só existe em build de desenvolvimento (não no Expo Go nem na web)
-let Voice: any = null;
-if (Platform.OS !== "web") {
-  try {
-    Voice = require("@react-native-voice/voice").default;
-  } catch {
-    Voice = null;
-  }
-}
+type Campo = "email" | "senha" | null;
 
-const MODOS: { id: Modo; nome: string }[] = [
-  { id: "ambiente", nome: "Ambiente" },
-  { id: "texto", nome: "Ler texto" },
-  { id: "produto", nome: "Produto" },
-  { id: "documento", nome: "Documento" },
-];
+export default function Acesso() {
+  const [email, setEmail] = useState("");
+  const [senha, setSenha] = useState("");
+  const [foco, setFoco] = useState<Campo>(null);
+  const senhaRef = useRef<TextInput>(null);
 
-export default function Principal() {
-  // ===== 1. TODOS OS HOOKS AQUI, NO TOPO =====
-  const [permissao, pedirPermissao] = useCameraPermissions();
-  const camera = useRef<CameraView>(null);
-  const imagem = useRef<string | null>(null);
-  const historico = useRef<Mensagem[]>([]);
-
-  const [modo, setModo] = useState<Modo>("ambiente");
-  const [ocupado, setOcupado] = useState(false);
-  const [resposta, setResposta] = useState("");
-
-  // Guarda a versão mais recente de "executar" para o listener de voz
-  const executarRef = useRef<(pergunta?: string) => Promise<void>>(async () => { });
-
-  useEffect(() => {
-    if (!Voice) return;
-    Voice.onSpeechResults = (ev: { value?: string[] }) => {
-      const texto = ev.value?.[0];
-      if (texto) executarRef.current(texto);
-    };
-    Voice.onSpeechError = () => falar("Não entendi. Toque e tente de novo.");
-    return () => {
-      Voice.destroy().then(Voice.removeAllListeners);
-    };
-  }, []);
-
-  // ===== 2. FUNÇÕES =====
-  async function executar(pergunta?: string) {
-    if (ocupado) return;
-    setOcupado(true);
-    setResposta("");
-    parar();
-
-    try {
-      if (!pergunta) {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-        const foto = await camera.current?.takePictureAsync({ quality: 0.8, skipProcessing: true });
-        if (!foto) throw new Error("Sem foto");
-        const img = await ImageManipulator.manipulateAsync(
-          foto.uri,
-          [{ resize: { width: 1024 } }],
-          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true },
-        );
-        imagem.current = img.base64 ?? null;
-        historico.current = [];
-      }
-      if (!imagem.current) {
-        falar("Primeiro descreva uma imagem.");
-        return;
-      }
-
-      falar("Analisando.");
-      const narrador = criarNarrador();
-      let completo = "";
-
-      await descrever({
-        imagemBase64: imagem.current,
-        modo,
-        pergunta,
-        historico: historico.current,
-        onTexto: (p) => {
-          completo += p;
-          setResposta(completo);
-          narrador.adicionar(p);
-        },
-      });
-      narrador.finalizar();
-
-      historico.current = [
-        ...historico.current,
-        ...(pergunta ? [{ role: "user" as const, texto: pergunta }] : []),
-        { role: "assistant" as const, texto: completo },
-      ];
-    } catch (erro) {
-      console.log("ERRO AO DESCREVER:", erro);
-      const msg = erro instanceof Error ? erro.message : String(erro);
-      setResposta(`Erro: ${msg}`);
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-      falar("Não consegui analisar agora. Verifique a conexão e tente de novo.");
-    } finally {
-      setOcupado(false);
-    }
-  }
-  executarRef.current = executar;
-
-  async function ouvirPergunta() {
-    if (!Voice) {
-      falar("O reconhecimento de voz não está disponível neste aparelho.");
-      return;
-    }
-    if (!imagem.current) {
-      falar("Primeiro descreva uma imagem.");
-      return;
-    }
-    parar();
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await Voice.start("pt-BR");
-  }
-
-  // ===== 3. SÓ AGORA OS RETURNS ANTECIPADOS =====
-  if (!permissao) return <View style={e.tela} />;
-
-  if (!permissao.granted) {
-    return (
-      <View style={[e.tela, e.centro]}>
-        <Text style={e.texto}>Precisamos da câmera para descrever o que você aponta.</Text>
-        <Pressable
-          style={e.botaoGrande}
-          onPress={pedirPermissao}
-          accessibilityRole="button"
-          accessibilityLabel="Permitir uso da câmera"
-        >
-          <Text style={e.botaoTexto}>Permitir câmera</Text>
-        </Pressable>
-      </View>
-    );
+  function entrar() {
+    // TODO: autenticação. Por enquanto o acesso é livre e os campos não são validados.
+    router.replace("/menu");
   }
 
   return (
-    <View style={e.tela}>
-      <CameraView ref={camera} style={StyleSheet.absoluteFill} facing="back" />
-
-      <View style={e.modos}>
-        {MODOS.map((m) => (
-          <Pressable
-            key={m.id}
-            onPress={() => { setModo(m.id); Haptics.selectionAsync(); }}
-            accessibilityRole="button"
-            accessibilityLabel={`Modo ${m.nome}`}
-            accessibilityState={{ selected: modo === m.id }}
-            style={[e.modo, modo === m.id && e.modoAtivo]}
-          >
-            <Text style={[e.modoTexto, modo === m.id && e.modoTextoAtivo]}>{m.nome}</Text>
-          </Pressable>
-        ))}
-      </View>
-
-      <View style={e.rodape}>
-        {resposta !== "" && <Text style={e.resposta}>{resposta}</Text>}
-
-        <Pressable
-          style={[e.botaoGrande, ocupado && { opacity: 0.6 }]}
-          onPress={() => executar()}
-          disabled={ocupado}
-          accessibilityRole="button"
-          accessibilityLabel="Tirar foto e descrever"
-          accessibilityHint="Aponte a câmera para o que deseja conhecer e toque duas vezes"
+    <SafeAreaView style={e.tela}>
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={e.conteudo}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <Text style={e.botaoTexto}>{ocupado ? "Analisando..." : "Descrever"}</Text>
-        </Pressable>
+          <View style={e.marca}>
+            <Logo size={168} />
+            <Text accessibilityRole="header" style={e.nome}>
+              Farol
+            </Text>
+            <Text style={e.lema}>Seu mundo, descrito em voz alta.</Text>
+          </View>
 
-        <Pressable
-          style={e.botaoSecundario}
-          onPress={ouvirPergunta}
-          accessibilityRole="button"
-          accessibilityLabel="Fazer uma pergunta sobre a imagem"
-        >
-          <Text style={e.botaoSecundarioTexto}>Perguntar</Text>
-        </Pressable>
-      </View>
-    </View>
+          <View style={e.formulario}>
+            <Text style={e.rotulo}>E-mail</Text>
+            <TextInput
+              value={email}
+              onChangeText={setEmail}
+              onFocus={() => setFoco("email")}
+              onBlur={() => setFoco(null)}
+              placeholder="voce@exemplo.com"
+              placeholderTextColor={cores.textoSuave}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoComplete="email"
+              returnKeyType="next"
+              onSubmitEditing={() => senhaRef.current?.focus()}
+              accessibilityLabel="E-mail"
+              style={[e.campo, foco === "email" && e.campoFoco]}
+            />
+
+            <Text style={e.rotulo}>Senha</Text>
+            <TextInput
+              ref={senhaRef}
+              value={senha}
+              onChangeText={setSenha}
+              onFocus={() => setFoco("senha")}
+              onBlur={() => setFoco(null)}
+              placeholder="Sua senha"
+              placeholderTextColor={cores.textoSuave}
+              secureTextEntry
+              autoCapitalize="none"
+              returnKeyType="go"
+              onSubmitEditing={entrar}
+              accessibilityLabel="Senha"
+              style={[e.campo, foco === "senha" && e.campoFoco]}
+            />
+
+            <Botao
+              titulo="Entrar"
+              grande
+              onPress={entrar}
+              accessibilityHint="Abre o menu de funções"
+              style={{ marginTop: espaco.md }}
+            />
+
+            <Text style={e.aviso}>
+              Versão de testes: o acesso ainda não pede senha. Toque em Entrar para continuar.
+            </Text>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }
 
 const e = StyleSheet.create({
-  tela: { flex: 1, backgroundColor: "#000" },
-  centro: { justifyContent: "center", alignItems: "center", padding: 24, gap: 24 },
-  texto: { color: "#fff", fontSize: 20, textAlign: "center" },
-  modos: { flexDirection: "row", flexWrap: "wrap", gap: 8, padding: 16, paddingTop: 56 },
-  modo: { paddingVertical: 12, paddingHorizontal: 16, borderRadius: 24, backgroundColor: "#000a", minHeight: 48, justifyContent: "center" },
-  modoAtivo: { backgroundColor: "#FFD400" },
-  modoTexto: { color: "#fff", fontSize: 16 },
-  modoTextoAtivo: { color: "#000", fontWeight: "600" },
-  rodape: { position: "absolute", left: 0, right: 0, bottom: 0, padding: 16, gap: 12, backgroundColor: "#000c" },
-  resposta: { color: "#fff", fontSize: 18, lineHeight: 26 },
-  botaoGrande: { backgroundColor: "#FFD400", minHeight: 96, borderRadius: 16, justifyContent: "center", alignItems: "center" },
-  botaoTexto: { color: "#000", fontSize: 24, fontWeight: "700" },
-  botaoSecundario: { borderWidth: 2, borderColor: "#FFD400", minHeight: 64, borderRadius: 16, justifyContent: "center", alignItems: "center" },
-  botaoSecundarioTexto: { color: "#FFD400", fontSize: 20, fontWeight: "600" },
+  tela: { flex: 1, backgroundColor: cores.fundo },
+  conteudo: {
+    flexGrow: 1,
+    justifyContent: "center",
+    padding: espaco.lg,
+    gap: espaco.xl,
+  },
+  marca: { alignItems: "center", gap: espaco.sm },
+  nome: {
+    color: cores.textoPrincipal,
+    fontSize: fonte.marca,
+    fontWeight: "800",
+    letterSpacing: 1,
+  },
+  lema: { color: cores.luzSuave, fontSize: fonte.corpo, textAlign: "center" },
+  formulario: { gap: espaco.sm },
+  rotulo: {
+    color: cores.textoPrincipal,
+    fontSize: fonte.corpo,
+    fontWeight: "600",
+    marginTop: espaco.sm,
+  },
+  campo: {
+    minHeight: 60,
+    paddingHorizontal: espaco.md,
+    borderRadius: raio.md,
+    borderWidth: 2,
+    borderColor: cores.borda,
+    backgroundColor: cores.superficie,
+    color: cores.textoPrincipal,
+    fontSize: fonte.corpo,
+  },
+  campoFoco: { borderColor: cores.luz },
+  aviso: {
+    color: cores.textoSecundario,
+    fontSize: fonte.pequeno,
+    lineHeight: 21,
+    textAlign: "center",
+    marginTop: espaco.sm,
+  },
 });
