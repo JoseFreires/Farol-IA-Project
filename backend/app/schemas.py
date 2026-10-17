@@ -10,6 +10,7 @@ class Mensagem(BaseModel):
 
 class DescreverRequest(BaseModel):
     imagem_base64: str = Field(max_length=6_000_000)
+    detalhe: Literal["resumo", "normal", "completo"] = "normal"
     modo: Literal["ambiente", "texto", "produto", "documento"] = "ambiente"
     pergunta: str | None = Field(default=None, max_length=500)
     historico: list[Mensagem] = Field(default_factory=list, max_length=20)
