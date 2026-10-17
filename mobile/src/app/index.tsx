@@ -36,7 +36,7 @@ export default function Principal() {
   const [resposta, setResposta] = useState("");
 
   // Guarda a versão mais recente de "executar" para o listener de voz
-  const executarRef = useRef<(pergunta?: string) => Promise<void>>(async () => {});
+  const executarRef = useRef<(pergunta?: string) => Promise<void>>(async () => { });
 
   useEffect(() => {
     if (!Voice) return;
@@ -97,7 +97,10 @@ export default function Principal() {
         ...(pergunta ? [{ role: "user" as const, texto: pergunta }] : []),
         { role: "assistant" as const, texto: completo },
       ];
-    } catch {
+    } catch (erro) {
+      console.log("ERRO AO DESCREVER:", erro);
+      const msg = erro instanceof Error ? erro.message : String(erro);
+      setResposta(`Erro: ${msg}`);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       falar("Não consegui analisar agora. Verifique a conexão e tente de novo.");
     } finally {

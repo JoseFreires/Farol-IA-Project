@@ -62,7 +62,8 @@ async def descrever(req: DescreverRequest):
             async for pedaco in descrever_stream(req):
                 yield _evento({"texto": pedaco})
             yield "data: [FIM]\n\n"
-        except Exception:
+        except Exception as erro:
+            print("ERRO NO MODELO:", repr(erro))
             yield _evento({"erro": "O serviço está indisponível agora. Tente de novo em instantes."})
 
     return StreamingResponse(eventos(), media_type="text/event-stream")
