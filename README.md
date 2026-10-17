@@ -1,8 +1,7 @@
-# Descritor de Imagens para Pessoas com Deficiência Visual
+# Farol - Descritor de Imagens para Pessoas com Deficiência Visual
 
 Aplicativo que usa a câmera do celular e uma IA de visão para **descrever em voz alta** o ambiente, rótulos de produtos e documentos. A IA roda **localmente, via Ollama**, sem custo e sem enviar imagens para a nuvem.
 
-> Nome provisório. Projeto em desenvolvimento (MVP).
 
 ## Como funciona
 
