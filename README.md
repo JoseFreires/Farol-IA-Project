@@ -2,6 +2,8 @@
 
 Aplicativo que usa a câmera do celular e uma IA de visão para **descrever em voz alta** o ambiente, rótulos de produtos e documentos. A IA roda **localmente, via Ollama**, sem custo e sem enviar imagens para a nuvem.
 
+Consulte a [documentação técnica](docs/ARQUITETURA.md) para entender a arquitetura, os fluxos do aplicativo e da API e as limitações atuais.
+
 
 ## Como funciona
 
@@ -32,6 +34,7 @@ farol/
 │   │   ├── boleto.py       # validação de boletos
 │   │   └── ocr.py          # (opcional) OCR com Tesseract
 │   ├── tests/
+│   ├── eval/               # casos e script de avaliação
 │   ├── .env                # você cria (não vai para o Git)
 │   └── requirements.txt
 ├── mobile/
@@ -40,7 +43,8 @@ farol/
 │   │   └── services/       # api.ts e fala.ts
 │   ├── .env                # você cria (não vai para o Git)
 │   └── package.json
-└── eval/                   # fotos de teste e script de avaliação
+└── docs/
+│   └── ARQUITETURA.md       # arquitetura e funcionamento técnico
 ```
 
 ## Pré-requisitos
