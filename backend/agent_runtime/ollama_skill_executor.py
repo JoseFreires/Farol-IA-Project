@@ -29,6 +29,7 @@ class OllamaSkillExecutor:
 
         raw = await self.client.analyze_image(
             image=request.image,
+            previous_image=request.previous_image,
             system_instructions=definition.instructions,
             input_data=payload,
             output_schema=output_model.model_json_schema(),

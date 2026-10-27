@@ -24,16 +24,13 @@ class MarkdownLoader:
         self.max_file_bytes = max_file_bytes
         self._cache: dict[Path, MarkdownDefinition] = {}
 
-    def load_agent(self, file_path: Path) -> MarkdownDefinition:
-        return self._load(file_path, "agent")
-
     def load_skill(self, file_path: Path) -> MarkdownDefinition:
-        return self._load(file_path, "skill")
+        return self._load(file_path)
 
     def clear_cache(self) -> None:
         self._cache.clear()
 
-    def _load(self, file_path: Path, definition_type: str) -> MarkdownDefinition:
+    def _load(self, file_path: Path) -> MarkdownDefinition:
         resolved = Path(file_path).resolve()
         if not resolved.exists():
             raise MarkdownNotFoundError(f"Markdown não encontrado: {resolved}")
@@ -69,12 +66,11 @@ class MarkdownLoader:
         if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
             raise MarkdownInvalidFrontmatterError(f"Nome inválido: {name}")
 
-        if definition_type == "skill":
-            expected = resolved.parent.name
-            if name != expected:
-                raise MarkdownNameMismatchError(
-                    f"Nome do skill '{name}' deve coincidir com o diretório '{expected}'"
-                )
+        expected = resolved.parent.name
+        if name != expected:
+            raise MarkdownNameMismatchError(
+                f"Nome do skill '{name}' deve coincidir com o diretório '{expected}'"
+            )
 
         allowed_executors = {"ollama", "python"}
         if executor is not None and executor not in allowed_executors:
@@ -85,7 +81,6 @@ class MarkdownLoader:
             description=description,
             instructions=instructions.strip(),
             file_path=resolved,
-            definition_type=definition_type,
             version=str(data.get("version")) if data.get("version") is not None else None,
             language=str(data.get("language") or "pt-BR"),
             executor=executor,

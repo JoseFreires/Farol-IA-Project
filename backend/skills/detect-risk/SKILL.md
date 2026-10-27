@@ -1,12 +1,12 @@
 ---
-name: detectar-risco-domiciliar
-description: Analisa uma imagem residencial e produz hipóteses estruturadas de possíveis obstáculos, bloqueios, alterações de acesso ou desníveis. Use somente para riscos domésticos visíveis e nunca para garantir segurança.
+name: detect-risk
+description: Analisa uma imagem e produz hipóteses estruturadas de possíveis obstáculos, bloqueios, alterações de acesso ou desníveis. Use somente para riscos visíveis e nunca para garantir segurança.
 version: "0.2.0"
 language: pt-BR
 executor: ollama
 ---
 
-# Detectar risco domiciliar
+# Detectar risco
 
 ## Objetivo
 

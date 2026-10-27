@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 
 @dataclass(frozen=True, slots=True)
-class ResidentialRulesConfig:
+class RulesConfig:
     confianca_minima_descricao: float = 0.60
     confianca_minima_resposta: float = 0.65
     confianca_minima_evento: float = 0.70
@@ -30,7 +30,7 @@ class ResidentialRulesConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class EventoResidencial:
+class VisualEvent:
     tipo: str
     objeto: str | None = None
     posicao: str | None = None
@@ -41,47 +41,47 @@ class EventoResidencial:
 
 
 @dataclass(frozen=True, slots=True)
-class DadosAnaliseResidencial:
+class AnalysisData:
     session_id: str
-    contexto: str
     descricao: str | None = None
     resposta_semantica: str | None = None
     objetos: tuple[dict[str, Any], ...] = ()
-    eventos: tuple[EventoResidencial, ...] = ()
+    eventos: tuple[VisualEvent, ...] = ()
     confianca_geral: float | None = None
     metadados: dict[str, Any] | None = None
     erro: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class MemoriaResidencial:
+class SessionMemory:
     descricao_inicial_realizada: bool = False
     ultima_descricao: str | None = None
     ultima_mensagem: str | None = None
     ultima_fala_em: datetime | None = None
     motivos_recentes: tuple[str, ...] = ()
-    eventos_recentes: tuple[EventoResidencial, ...] = ()
+    eventos_recentes: tuple[VisualEvent, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
-class DecisaoContexto:
+class ProcessingDecision:
     deve_falar: bool
     mensagem: str | None
     prioridade: str
     motivo: str
     cooldown_segundos: int | None = None
+    eventos_anunciados: tuple[VisualEvent, ...] = ()
 
 
-class AnaliseResidencialError(RuntimeError):
+class AnalysisError(RuntimeError):
     pass
 
 
-class ResidentialRules:
-    """Aplica regras do contexto residencial sobre um resultado estruturado da análise."""
+class Rules:
+    """Applies deterministic communication rules to structured visual analysis."""
 
     def __init__(
         self,
-        config: ResidentialRulesConfig,
+        config: RulesConfig,
         clock: Callable[[], datetime] | None = None,
     ) -> None:
         self.config = config
@@ -89,19 +89,19 @@ class ResidentialRules:
 
     def avaliar(
         self,
-        dados: DadosAnaliseResidencial,
-        memoria: MemoriaResidencial,
+        dados: AnalysisData,
+        memoria: SessionMemory,
         pergunta: str | None,
-    ) -> DecisaoContexto:
+    ) -> ProcessingDecision:
         if dados.erro:
-            raise AnaliseResidencialError(dados.erro)
+            raise AnalysisError(dados.erro)
 
         if pergunta:
             resposta = self._avaliar_pergunta(dados, pergunta)
             if resposta is not None:
                 return resposta
 
-            return DecisaoContexto(
+            return ProcessingDecision(
                 deve_falar=True,
                 mensagem="Não foi possível confirmar essa informação nesta imagem.",
                 prioridade="INFORMATIVA",
@@ -109,8 +109,13 @@ class ResidentialRules:
                 cooldown_segundos=None,
             )
 
+        # Structured events take precedence over a global description.
+        evento = self._avaliar_novo_evento(dados, memoria)
+        if evento is not None:
+            return evento
+
         if self._deve_descrever_inicial(memoria, dados):
-            return DecisaoContexto(
+            return ProcessingDecision(
                 deve_falar=True,
                 mensagem=dados.descricao,
                 prioridade="INFORMATIVA",
@@ -118,7 +123,11 @@ class ResidentialRules:
                 cooldown_segundos=self.config.cooldown_descricao_segundos,
             )
 
-        return DecisaoContexto(
+        mudanca_textual = self._avaliar_mudanca_textual(dados, memoria)
+        if mudanca_textual is not None:
+            return mudanca_textual
+
+        return ProcessingDecision(
             deve_falar=False,
             mensagem=None,
             prioridade="NENHUMA",
@@ -126,11 +135,73 @@ class ResidentialRules:
             cooldown_segundos=None,
         )
 
+    def _avaliar_novo_evento(
+        self,
+        dados: AnalysisData,
+        memoria: SessionMemory,
+    ) -> ProcessingDecision | None:
+        eventos_novos = [
+            evento
+            for evento in dados.eventos
+            if evento not in memoria.eventos_recentes
+            and evento.confianca >= self.config.confianca_minima_evento
+        ]
+        evento = self._maior_evento(tuple(eventos_novos))
+        if evento is None:
+            return None
+
+        risco = evento.tipo in ("risco", "obstaculo")
+        cooldown = (
+            self.config.cooldown_risco_segundos
+            if risco
+            else self.config.cooldown_mudanca_segundos
+        )
+
+        return ProcessingDecision(
+            deve_falar=True,
+            mensagem=self._montar_mensagem_evento(evento),
+            prioridade="ALTA" if risco else "INFORMATIVA",
+            motivo="POSSIVEL_RISCO" if risco else "MUDANCA_DETECTADA",
+            cooldown_segundos=cooldown,
+            eventos_anunciados=(evento,),
+        )
+
+    def _avaliar_mudanca_textual(
+        self,
+        dados: AnalysisData,
+        memoria: SessionMemory,
+    ) -> ProcessingDecision | None:
+        texto_mudanca = dados.descricao or dados.resposta_semantica
+        if not texto_mudanca:
+            return None
+
+        confianca = dados.confianca_geral if dados.confianca_geral is not None else 1.0
+        if not self._conf_suficiente(confianca, self.config.confianca_minima_evento):
+            return None
+
+        # Evita repetir exatamente a mesma descrição caso não tenha mudado
+        if memoria.ultima_descricao and memoria.ultima_descricao.strip().lower() == texto_mudanca.strip().lower():
+            return None
+
+        cooldown = self.config.cooldown_mudanca_segundos
+        if memoria.ultima_fala_em is not None:
+            delta = (self._clock() - memoria.ultima_fala_em).total_seconds()
+            if delta < cooldown:
+                return None
+
+        return ProcessingDecision(
+            deve_falar=True,
+            mensagem=texto_mudanca,
+            prioridade="INFORMATIVA",
+            motivo="MUDANCA_DETECTADA",
+            cooldown_segundos=cooldown,
+        )
+
     def _avaliar_pergunta(
         self,
-        dados: DadosAnaliseResidencial,
+        dados: AnalysisData,
         pergunta: str | None,
-    ) -> DecisaoContexto | None:
+    ) -> ProcessingDecision | None:
         if not pergunta:
             return None
 
@@ -138,7 +209,7 @@ class ResidentialRules:
             dados.confianca_geral,
             self.config.confianca_minima_resposta,
         ):
-            return DecisaoContexto(
+            return ProcessingDecision(
                 deve_falar=True,
                 mensagem=dados.resposta_semantica,
                 prioridade="INFORMATIVA",
@@ -149,20 +220,26 @@ class ResidentialRules:
         if self._tem_evento_relevante(dados):
             evento = self._maior_evento(dados.eventos)
             if evento is not None and evento.confianca >= self.config.confianca_minima_evento:
-                return DecisaoContexto(
+                risco = evento.tipo in ("risco", "obstaculo")
+                return ProcessingDecision(
                     deve_falar=True,
                     mensagem=self._montar_mensagem_evento(evento),
-                    prioridade="ALTA",
-                    motivo="POSSIVEL_RISCO_RESIDENCIAL",
-                    cooldown_segundos=self.config.cooldown_risco_segundos,
+                    prioridade="ALTA" if risco else "INFORMATIVA",
+                    motivo="POSSIVEL_RISCO" if risco else "MUDANCA_DETECTADA",
+                    cooldown_segundos=(
+                        self.config.cooldown_risco_segundos
+                        if risco
+                        else self.config.cooldown_mudanca_segundos
+                    ),
+                    eventos_anunciados=(evento,),
                 )
 
         return None
 
     def _deve_descrever_inicial(
         self,
-        memoria: MemoriaResidencial,
-        dados: DadosAnaliseResidencial,
+        memoria: SessionMemory,
+        dados: AnalysisData,
     ) -> bool:
         if memoria.descricao_inicial_realizada:
             return False
@@ -184,20 +261,26 @@ class ResidentialRules:
 
         return True
 
-    def _tem_evento_relevante(self, dados: DadosAnaliseResidencial) -> bool:
+    def _tem_evento_relevante(self, dados: AnalysisData) -> bool:
         return any(
             evento.confianca >= self.config.confianca_minima_evento for evento in dados.eventos
         )
 
     def _maior_evento(
         self,
-        eventos: tuple[EventoResidencial, ...],
-    ) -> EventoResidencial | None:
-        if not eventos:
+        tuples: tuple[VisualEvent, ...],
+    ) -> VisualEvent | None:
+        if not tuples:
             return None
-        return max(eventos, key=lambda e: e.confianca)
+        return max(tuples, key=lambda e: e.confianca)
 
-    def _montar_mensagem_evento(self, evento: EventoResidencial) -> str:
+    def _montar_mensagem_evento(self, evento: VisualEvent) -> str:
+        if (
+            evento.metadados
+            and evento.metadados.get("tipo_mudanca") == "OBJETO_REMOVIDO"
+            and evento.objeto
+        ):
+            return f"O objeto {evento.objeto} não aparece mais na imagem atual."
         if evento.tipo == "obstaculo" and evento.objeto and evento.posicao:
             return f"Atenção, {evento.objeto} à {self._posicao_para_texto(evento.posicao)}."
         if evento.tipo == "risco" and evento.objeto:

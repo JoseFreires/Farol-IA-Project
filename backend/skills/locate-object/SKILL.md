@@ -1,12 +1,12 @@
 ---
-name: localizar-objeto-residencial
-description: Localiza um objeto solicitado em uma imagem residencial. Use para perguntas como "onde está o sofá?" ou "existe uma porta por perto?". Retorna localização estruturada e confiança, sem decidir fala ou prioridade.
+name: locate-object
+description: Localiza um objeto solicitado em uma imagem. Retorna localização estruturada e confiança, sem decidir fala ou prioridade.
 version: "0.2.0"
 language: pt-BR
 executor: ollama
 ---
 
-# Localizar objeto residencial
+# Localizar objeto
 
 ## Objetivo
 

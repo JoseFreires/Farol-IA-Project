@@ -42,10 +42,6 @@ class SkillInvalidDefinitionError(RuntimeErrorFarol):
     pass
 
 
-class AgentNotFoundError(RuntimeErrorFarol):
-    pass
-
-
 class OllamaUnavailableError(RuntimeErrorFarol):
     pass
 

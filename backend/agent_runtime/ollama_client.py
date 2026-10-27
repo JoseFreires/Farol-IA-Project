@@ -28,37 +28,24 @@ class OllamaClient:
         self,
         *,
         image: bytes,
+        previous_image: bytes | None = None,
         system_instructions: str,
         input_data: dict[str, Any],
         output_schema: dict[str, Any],
         correlation_id: str,
     ) -> str:
-        payload = {
-            "model": self.config.model,
-            "messages": [
-                {"role": "system", "content": system_instructions},
-                {"role": "user", "content": json.dumps(input_data, ensure_ascii=False), "images": [base64.b64encode(image).decode("utf-8")]},
-            ],
-            "format": output_schema,
-            "stream": False,
-            "options": {"temperature": self.config.temperature},
-            "keep_alive": self.config.keep_alive,
-        }
-        return await self._post(payload, correlation_id)
+        images = []
+        content = json.dumps(input_data, ensure_ascii=False)
+        if previous_image is not None:
+            images.append(base64.b64encode(previous_image).decode("utf-8"))
+            content += "\nAs imagens anexadas estão nesta ordem: primeiro a imagem anterior, depois a imagem atual. Compare as duas."
+        images.append(base64.b64encode(image).decode("utf-8"))
 
-    async def plan(
-        self,
-        *,
-        system_instructions: str,
-        input_data: dict[str, Any],
-        output_schema: dict[str, Any],
-        correlation_id: str,
-    ) -> str:
         payload = {
             "model": self.config.model,
             "messages": [
                 {"role": "system", "content": system_instructions},
-                {"role": "user", "content": json.dumps(input_data, ensure_ascii=False)},
+                {"role": "user", "content": content, "images": images},
             ],
             "format": output_schema,
             "stream": False,

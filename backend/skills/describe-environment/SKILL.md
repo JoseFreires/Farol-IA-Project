@@ -1,12 +1,12 @@
 ---
-name: descrever-ambiente-residencial
-description: Descreve o ambiente residencial atual em uma frase curta e útil para pessoas com baixa visão, sem inventar detalhes. Use como primeira descrição quando a sessão ainda não tem descrição inicial válida.
+name: describe-environment
+description: Descreve o ambiente visível em uma frase curta e útil para pessoas com baixa visão, sem inventar detalhes. Use como primeira descrição quando a sessão ainda não tem descrição inicial válida.
 version: "0.2.0"
 language: pt-BR
 executor: ollama
 ---
 
-# Descrever ambiente residencial
+# Descrever ambiente
 
 ## Objetivo
 

@@ -1,11 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal
-
-from pydantic import BaseModel, Field
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -14,7 +11,6 @@ class MarkdownDefinition:
     description: str
     instructions: str
     file_path: Path
-    definition_type: Literal["agent", "skill"]
     version: str | None = None
     language: str = "pt-BR"
     executor: str | None = None
@@ -28,16 +24,6 @@ class SkillSummary:
     executor: str
 
 
-class SkillCall(BaseModel):
-    name: str
-    arguments: dict[str, Any] = Field(default_factory=dict)
-
-
-class AgentPlan(BaseModel):
-    skills: list[SkillCall] = Field(min_length=1, max_length=3)
-    resumo: str | None = None
-
-
 @dataclass(frozen=True, slots=True)
 class SkillExecutionRequest:
     skill_name: str
@@ -45,6 +31,7 @@ class SkillExecutionRequest:
     input_data: dict[str, Any]
     session_id: str
     correlation_id: str
+    previous_image: bytes | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,11 +42,3 @@ class SkillExecutionResult:
     duration_ms: int
     error_code: str | None = None
     error_detail: str | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class AgentRegistration:
-    name: str
-    definition_path: Path
-    allowed_skills: frozenset[str]
-    max_skills_per_request: int = 1
