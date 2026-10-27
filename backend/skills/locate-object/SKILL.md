@@ -3,6 +3,7 @@ name: locate-object
 description: Localiza um objeto solicitado em uma imagem. Retorna localização estruturada e confiança, sem decidir fala ou prioridade.
 version: "0.2.0"
 language: pt-BR
+model: qwen2.5vl:3b
 executor: ollama
 ---
 
