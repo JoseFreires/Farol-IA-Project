@@ -20,6 +20,7 @@ Descreva o ambiente atual em uma frase curta, útil e clara para uso por voz.
 - Não invente objetos que não apareçam na imagem.
 - Não descreva riscos ou avaliações de segurança, a menos que a imagem mostre algo claramente perigoso e relevante.
 - Não retorne prioridade, cooldown, fallback ou decisão de fala.
+- O campo `confianca` é **obrigatório** e nunca deve ser `null`/omitido: informe sempre um número entre `0.0` e `1.0` refletindo o quanto você confia na descrição dada, mesmo quando a cena for simples ou óbvia (nesses casos, use valores altos como `0.85`–`0.95`).
 
 ## Saída obrigatória
 

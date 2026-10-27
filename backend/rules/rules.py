@@ -9,7 +9,7 @@ from typing import Any, Callable
 class RulesConfig:
     confianca_minima_descricao: float = 0.60
     confianca_minima_resposta: float = 0.65
-    confianca_minima_evento: float = 0.70
+    confianca_minima_evento: float = 0.55
     cooldown_descricao_segundos: int = 15
     cooldown_mudanca_segundos: int = 10
     cooldown_risco_segundos: int = 5
@@ -60,6 +60,7 @@ class SessionMemory:
     ultima_fala_em: datetime | None = None
     motivos_recentes: tuple[str, ...] = ()
     eventos_recentes: tuple[VisualEvent, ...] = ()
+    objetos_recentes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

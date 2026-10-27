@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -12,13 +13,15 @@ if TYPE_CHECKING:
 from .models import SkillExecutionRequest
 from .skill_executor import SkillExecutor
 
+logger = logging.getLogger(__name__)
+
 
 class LocalizarObjetoResultado(BaseModel):
     objeto_encontrado: bool
     objeto: str | None = None
     posicao: str | None = None
     proximidade: str | None = None
-    confianca: float | None = None
+    confianca: float = Field(ge=0.0, le=1.0)
     confianca_geral: float | None = None
     fonte: str | None = None
     resposta_semantica: str
@@ -55,7 +58,7 @@ class MudancaResultado(BaseModel):
 
     houve_mudanca_relevante: bool
     mudancas: list[MudancaItem]
-    confianca_geral: float | None = Field(default=None, ge=0.0, le=1.0)
+    confianca_geral: float = Field(ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def validar_consistencia(self) -> "MudancaResultado":
@@ -78,7 +81,7 @@ class MudancaResultado(BaseModel):
 class RiscoResultado(BaseModel):
     possui_possivel_risco: bool
     riscos: list[dict[str, Any]] | None = Field(default=None)
-    confianca_geral: float | None = None
+    confianca_geral: float = Field(ge=0.0, le=1.0)
 
 
 class AgentRuntime:
@@ -96,8 +99,9 @@ class AgentRuntime:
             input_data={
                 "objeto_alvo": solicitacao.pergunta.lower() if solicitacao.pergunta else None,
                 "ultima_descricao": memoria.ultima_descricao,
-                "objetos_recentes": [],
+                "objetos_recentes": list(memoria.objetos_recentes),
                 "pergunta": solicitacao.pergunta,
+                "indice_mudanca_visual": solicitacao.indice_mudanca_visual,
             },
             session_id=solicitacao.session_id,
             correlation_id=solicitacao.session_id,
@@ -132,6 +136,11 @@ class AgentRuntime:
         payload = execution.data
         if skill_name in ("describe-environment", "locate-object"):
             if skill_name == "locate-object":
+                if payload.confianca is None:
+                    logger.warning(
+                        "Skill locate-object não retornou confianca (session=%s)",
+                        solicitacao.session_id,
+                    )
                 return AnalysisData(
                     session_id=solicitacao.session_id,
                     resposta_semantica=payload.resposta_semantica,
@@ -147,10 +156,24 @@ class AgentRuntime:
                     eventos=(),
                 )
 
+            confianca_resolvida = (
+                payload.confianca_geral
+                if payload.confianca_geral is not None
+                else payload.confianca
+            )
+            if confianca_resolvida is None:
+                logger.warning(
+                    "Skill %s não retornou confianca/confianca_geral; "
+                    "tratando como confiança insuficiente (session=%s)",
+                    skill_name,
+                    solicitacao.session_id,
+                )
+                confianca_resolvida = 0.0
+
             return AnalysisData(
                 session_id=solicitacao.session_id,
                 descricao=payload.resposta_semantica,
-                confianca_geral=float(payload.confianca_geral or payload.confianca or 0.0),
+                confianca_geral=float(confianca_resolvida),
                 eventos=(),
                 objetos=(),
             )

@@ -46,6 +46,7 @@ class ProcessingRequest:
     pergunta: str | None = None
     timestamp: datetime = field(default_factory=datetime.utcnow)
     imagem_anterior: bytes | None = field(default=None, repr=False, compare=False)
+    indice_mudanca_visual: float | None = field(default=None, repr=False, compare=False)
     skill_override: Literal["describe-environment", "identify-change"] | None = field(
         default=None,
         repr=False,
@@ -116,6 +117,14 @@ class SessionManager:
                 for evento in memoria.eventos_recentes
                 if evento in dados.eventos
             )
+        objetos_novos = tuple(
+            nome
+            for item in dados.objetos
+            if (nome := item.get("nome"))
+        )
+        objetos_recentes = tuple(
+            dict.fromkeys((*memoria.objetos_recentes, *objetos_novos))
+        )[-20:]
         proxima = SessionMemory(
             descricao_inicial_realizada=memoria.descricao_inicial_realizada or bool(dados.descricao),
             ultima_descricao=dados.descricao or memoria.ultima_descricao,
@@ -123,6 +132,7 @@ class SessionManager:
             ultima_fala_em=datetime.utcnow() if decisao.deve_falar else memoria.ultima_fala_em,
             motivos_recentes=memoria.motivos_recentes,
             eventos_recentes=eventos_recentes,
+            objetos_recentes=objetos_recentes,
         )
         self._sessions[session_id]["analysis"] = proxima
         return proxima
@@ -207,7 +217,17 @@ class Processor:
                 if mudanca_drastica
                 else self.session_manager.obter_imagem(solicitacao.session_id)
             ),
+            indice_mudanca_visual=diferenca_visual,
             skill_override=skill_override,
+        )
+        logger.info(
+            "processor decisão de skill session=%s skill_override=%r "
+            "diferenca_visual=%r mudanca_drastica=%r descricao_inicial_realizada=%r",
+            solicitacao.session_id,
+            skill_override,
+            diferenca_visual,
+            mudanca_drastica,
+            memoria.descricao_inicial_realizada,
         )
         dados = await self.runtime.processar(solicitacao_runtime, memoria)
         logger.info(

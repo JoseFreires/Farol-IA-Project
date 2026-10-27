@@ -26,19 +26,8 @@ Compare o estado atual do ambiente com as observações recentes e identifique a
 1. **Verificação de Mudança de Divisão/Contexto:** Antes de comparar objetos, verifique se a tipologia do ambiente mudou drasticamente entre a imagem anterior e a atual (ex: transição de uma cozinha para uma casa de banho). Se o espaço físico for manifestamente diferente, **interrompa a análise de remoção** e retorne obrigatoriamente `SEM_MUDANCA_RELEVANTE` (ou declare uma alteração global de ambiente).
 2. Quando duas imagens válidas do mesmo espaço forem anexadas, compare a primeira (imagem anterior) com a segunda (imagem atual)[cite: 6, 7].
 3. Ignore rigorosamente mudanças de iluminação, pequenos movimentos da câmara e variações de enquadramento[cite: 6, 7].
-4. **Proibição Absoluta de Falsas Remoções:** Nunca declare `OBJETO_REMOVIDO` de elementos grandes, estruturais ou eletrodomésticos importantes (como banheiras, frigoríficos, móveis fixos) a menos que estivessem explicitamente descritos na `ultima_descricao` e a área exata esteja perfeitamente visível na imagem atual.
-5. Na dúvida sobre a continuidade do espaço ou sobre a remoção de um objeto, opte sempre por retornar `SEM_MUDANCA_RELEvanTE`[cite: 6, 7].
-6. Retorne estritamente JSON válido, sem texto adicional[cite: 6, 7].
+4. Retorne estritamente JSON válido, sem texto adicional[cite: 6, 7].
 
-## Tipos permitidos
-
-- `OBJETO_NOVO`
-- `OBJETO_REMOVIDO` (Apenas com evidência visual irrefutável e mesma divisão)
-- `OBJETO_REPOSICIONADO`
-- `ESTADO_ALTERADO`
-- `POSSIVEL_BLOQUEIO`
-- `ALTERACAO_LAYOUT`
-- `SEM_MUDANCA_RELEVANTE`
 
 ## Regras de Ouro
 
