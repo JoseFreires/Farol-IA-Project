@@ -1,63 +1,35 @@
 import { Ionicons } from "@expo/vector-icons";
 
-import type { Modo } from "../services/api";
-
 export type Icone = keyof typeof Ionicons.glyphMap;
 
+export type AcaoCamera = "processar";
+
 export type Funcao = {
-  modo: Modo;
+  acao: AcaoCamera;
   titulo: string;
   descricao: string;
-  instrucao: string;
+  instrucaoVoz: string;
+  instrucaoEstavel?: string;
   icone: Icone;
 };
 
-// Funções disponíveis (cada uma corresponde a um modo do backend)
+// Função principal disponível no menu: Processar com agente inteligente
 export const FUNCOES: Funcao[] = [
   {
-    modo: "ambiente",
-    titulo: "Ambiente",
-    descricao: "Descreve o lugar, os objetos e onde cada um está.",
-    instrucao: "Aponte a câmera para o ambiente e toque em Descrever.",
-    icone: "eye-outline",
-  },
-  {
-    modo: "texto",
-    titulo: "Ler texto",
-    descricao: "Lê placas, cardápios, cartas e qualquer texto à sua frente.",
-    instrucao: "Enquadre o texto por inteiro e toque em Descrever.",
-    icone: "document-text-outline",
-  },
-  {
-    modo: "produto",
-    titulo: "Produto",
-    descricao: "Identifica a embalagem, a marca, a validade e os ingredientes.",
-    instrucao: "Aponte para a frente da embalagem e toque em Descrever.",
-    icone: "pricetag-outline",
-  },
-  {
-    modo: "documento",
-    titulo: "Documento",
-    descricao: "Lê contas e papéis, destacando valores e datas.",
-    instrucao: "Deixe o documento inteiro na imagem e toque em Descrever.",
-    icone: "newspaper-outline",
+    acao: "processar",
+    titulo: "Câmera",
+    descricao: "Aponte a câmera para o ambiente ou objeto a ser processado.",
+    instrucaoVoz: "Aponte a câmera para o ambiente ou objeto a ser processado.",
+    instrucaoEstavel: "Mantenha a câmera parada.",
+    icone: "hardware-chip-outline",
   },
 ];
 
 export type ItemMenu = { titulo: string; descricao: string; icone: Icone };
 
-// Funções planejadas (aparecem no menu, mas ainda não abrem)
-export const EM_BREVE: ItemMenu[] = [
-  {
-    titulo: "Boletos e cédulas",
-    descricao: "Valida o código do boleto e reconhece notas de real.",
-    icone: "barcode-outline",
-  },
-];
-
 // Atalho para a tela de configurações
 export const CONFIGURACOES: ItemMenu = {
   titulo: "Configurações",
-  descricao: "Voz, nível de detalhe, qualidade da foto e servidor.",
+  descricao: "Voz, captura automática e servidor.",
   icone: "settings-outline",
 };

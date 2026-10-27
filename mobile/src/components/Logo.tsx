@@ -1,12 +1,15 @@
 import { View } from "react-native";
 import Svg, { Circle, Path, Polygon, Rect } from "react-native-svg";
 
-import { cores } from "../theme/tema";
+import { useConfig } from "../settings/ConfiguracoesContext";
 
 type Props = { size?: number };
 
 // Desenho puramente decorativo: fica escondido dos leitores de tela.
 export function Logo({ size = 120 }: Props) {
+    const { cores } = useConfig();
+    const eClaro = cores.modo === "claro";
+
     return (
         <View
             accessible={false}
@@ -15,9 +18,23 @@ export function Logo({ size = 120 }: Props) {
         >
             <Svg width={size} height={size} viewBox="0 0 160 160">
                 {/* Raios de luz */}
-                <Polygon points="80,50 4,22 4,78" fill={cores.luz} opacity={0.26} />
-                <Polygon points="80,50 156,22 156,78" fill={cores.luz} opacity={0.26} />
-                <Circle cx={80} cy={50} r={17} fill={cores.luz} opacity={0.3} />
+                <Polygon
+                    points="80,50 4,22 4,78"
+                    fill={eClaro ? cores.luzForte : cores.luz}
+                    opacity={eClaro ? 0.35 : 0.26}
+                />
+                <Polygon
+                    points="80,50 156,22 156,78"
+                    fill={eClaro ? cores.luzForte : cores.luz}
+                    opacity={eClaro ? 0.35 : 0.26}
+                />
+                <Circle
+                    cx={80}
+                    cy={50}
+                    r={17}
+                    fill={eClaro ? cores.luzForte : cores.luz}
+                    opacity={eClaro ? 0.4 : 0.3}
+                />
 
                 {/* Torre */}
                 <Polygon points="64,150 96,150 90,64 70,64" fill={cores.torre} />
@@ -33,7 +50,7 @@ export function Logo({ size = 120 }: Props) {
                 {/* Mar */}
                 <Path
                     d="M0 150 Q20 142 40 150 T80 150 T120 150 T160 150 V160 H0 Z"
-                    fill={cores.superficie}
+                    fill={cores.mar}
                 />
             </Svg>
         </View>

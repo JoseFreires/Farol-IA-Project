@@ -1,13 +1,14 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 
-import { ConfiguracoesProvider } from "../settings/ConfiguracoesContext";
-import { cores } from "../theme/tema";
+import { ConfiguracoesProvider, useConfig } from "../settings/ConfiguracoesContext";
 
-export default function Layout() {
+function AppStack() {
+  const { cores } = useConfig();
+
   return (
-    <ConfiguracoesProvider>
-      <StatusBar style="light" />
+    <>
+      <StatusBar style={cores.statusBar} />
       <Stack
         screenOptions={{
           headerShown: false,
@@ -15,6 +16,14 @@ export default function Layout() {
           contentStyle: { backgroundColor: cores.fundo },
         }}
       />
+    </>
+  );
+}
+
+export default function Layout() {
+  return (
+    <ConfiguracoesProvider>
+      <AppStack />
     </ConfiguracoesProvider>
   );
 }

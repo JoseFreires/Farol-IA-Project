@@ -1,3 +1,4 @@
+import { File as ExpoFile } from "expo-file-system";
 import { fetch as streamFetch } from "expo/fetch"; // fetch com suporte a streaming
 
 import { obterConfig } from "../settings/atual";
@@ -38,6 +39,19 @@ export async function descrever({
   const base = urlServidor();
   if (!base) throw new Error("Endereço do servidor não configurado.");
 
+  const corpo = new FormData();
+  if (Platform.OS === "web") {
+    const respostaImagem = await fetch(imagemUri);
+    if (!respostaImagem.ok) throw new Error("Não foi possível ler a imagem.");
+    corpo.append("imagem", await respostaImagem.blob(), "imagem.jpg");
+  } else {
+    corpo.append("imagem", new ExpoFile(imagemUri));
+  }
+  corpo.append("modo", modo);
+  corpo.append("detalhe", obterConfig().detalhe);
+  corpo.append("historico", JSON.stringify(historico));
+  if (pergunta) corpo.append("pergunta", pergunta);
+
   const resp = await streamFetch(`${base}/descrever`, {
     method: "POST",
     headers: cabecalhos,
@@ -71,6 +85,60 @@ export async function descrever({
       if (json.texto) onTexto(json.texto);
     }
   }
+}
+
+export type ResultadoProcessamento = {
+  sessionId: string;
+  contexto: string;
+  status: string;
+  deveFalar: boolean;
+  mensagem: string | null;
+  prioridade: string;
+  idioma?: string;
+  fallback?: boolean;
+  motivo?: string | null;
+};
+
+type ProcessarParams = {
+  imagemUri: string;
+  sessionId?: string;
+  contexto?: string;
+  pergunta?: string;
+};
+
+export async function processar({
+  imagemUri,
+  sessionId = "mobile-session",
+  contexto = "RESIDENCIAL",
+  pergunta,
+}: ProcessarParams): Promise<ResultadoProcessamento> {
+  const base = urlServidor();
+  if (!base) throw new Error("Endereço do servidor não configurado.");
+
+  const corpo = new FormData();
+  if (Platform.OS === "web") {
+    const respostaImagem = await fetch(imagemUri);
+    if (!respostaImagem.ok) throw new Error("Não foi possível ler a imagem.");
+    corpo.append("imagem", await respostaImagem.blob(), "imagem.jpg");
+  } else {
+    corpo.append("imagem", new ExpoFile(imagemUri));
+  }
+  corpo.append("sessionId", sessionId);
+  corpo.append("contexto", contexto);
+  if (pergunta) corpo.append("pergunta", pergunta);
+
+  const resp = await fetch(`${base}/processar`, {
+    method: "POST",
+    headers: { Authorization: cabecalhos.Authorization },
+    body: corpo,
+  });
+
+  if (!resp.ok) {
+    const detalhe = await resp.text().catch(() => "");
+    throw new Error(`Erro ${resp.status}${detalhe ? `: ${detalhe}` : ""}`);
+  }
+
+  return resp.json();
 }
 
 // Chama /health com limite de tempo. Aceita um endereço para testar antes de salvar.

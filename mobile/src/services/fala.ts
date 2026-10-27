@@ -19,6 +19,33 @@ function opcoes(): Speech.SpeechOptions {
 export function falar(texto: string) {
   Speech.speak(texto, opcoes());
 }
+// Fala o texto de forma assíncrona, sem travar o aplicativo, uso pra guiar o usuário com captura automatica ativa
+export function falarAsync(texto: string, timeoutMs?: number): Promise<void> {
+  return new Promise((resolve) => {
+    let finalizado = false;
+    const concluir = () => {
+      if (!finalizado) {
+        finalizado = true;
+        clearTimeout(timer);
+        resolve();
+      }
+    };
+
+    const limite = timeoutMs ?? Math.max(3500, texto.length * 90);
+    const timer = setTimeout(concluir, limite);
+
+    Speech.speak(texto, {
+      ...opcoes(),
+      onDone: concluir,
+      onStopped: concluir,
+      onError: concluir,
+    });
+  });
+}
+
+export async function estaFalando(): Promise<boolean> {
+  return Speech.isSpeakingAsync();
+}
 
 export function parar() {
   Speech.stop();

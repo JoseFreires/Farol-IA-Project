@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -24,13 +24,19 @@ import { useConfig } from "../settings/ConfiguracoesContext";
 import {
   normalizarUrl,
   type Detalhe,
+  type ModoTema,
   type QualidadeFoto,
   type TomVoz,
   type VelocidadeFala,
 } from "../settings/tipos";
-import { cores, espaco, fonte, raio } from "../theme/tema";
+import { espaco, fonte, raio, type PaletaCores } from "../theme/tema";
 
 type Item<T extends string> = { valor: T; rotulo: string };
+
+const TEMAS: Item<ModoTema>[] = [
+  { valor: "escuro", rotulo: "Escuro" },
+  { valor: "claro", rotulo: "Claro" },
+];
 
 const VELOCIDADES: Item<VelocidadeFala>[] = [
   { valor: "lenta", rotulo: "Lenta" },
@@ -61,10 +67,20 @@ function rotuloDe<T extends string>(lista: Item<T>[], valor: T): string {
   return lista.find((i) => i.valor === valor)?.rotulo.toLowerCase() ?? "";
 }
 
-function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
+function Secao({
+  titulo,
+  children,
+  estiloSecao,
+  estiloTitulo,
+}: {
+  titulo: string;
+  children: ReactNode;
+  estiloSecao?: object;
+  estiloTitulo?: object;
+}) {
   return (
-    <View style={e.secao}>
-      <Text accessibilityRole="header" style={e.tituloSecao}>
+    <View style={estiloSecao}>
+      <Text accessibilityRole="header" style={estiloTitulo}>
         {titulo}
       </Text>
       {children}
@@ -74,7 +90,9 @@ function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
 
 export default function Configuracoes() {
   // ===== Hooks no topo =====
-  const { config, atualizar, restaurarPadroes } = useConfig();
+  const { config, cores, tema, alternarTema, atualizar, restaurarPadroes } = useConfig();
+  const e = useMemo(() => criarEstilos(cores, config.altoContraste), [cores, config.altoContraste]);
+
   const [vozes, setVozes] = useState<VozInfo[]>([]);
   const [endereco, setEndereco] = useState(config.servidorUrl);
   const [campoEmFoco, setCampoEmFoco] = useState(false);
@@ -144,18 +162,20 @@ export default function Configuracoes() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={e.topo}>
-          <Pressable
-            onPress={voltar}
-            accessibilityRole="button"
-            accessibilityLabel="Voltar ao menu"
-            hitSlop={8}
-            style={e.voltar}
-          >
-            <Ionicons name="arrow-back" size={28} color={cores.textoPrincipal} />
-          </Pressable>
-          <Text accessibilityRole="header" style={e.titulo}>
-            Configurações
-          </Text>
+          <View style={e.topoEsquerda}>
+            <Pressable
+              onPress={voltar}
+              accessibilityRole="button"
+              accessibilityLabel="Voltar ao menu"
+              hitSlop={8}
+              style={e.voltar}
+            >
+              <Ionicons name="arrow-back" size={28} color={cores.textoPrincipal} />
+            </Pressable>
+            <Text accessibilityRole="header" style={e.titulo}>
+              Configurações
+            </Text>
+          </View>
         </View>
 
         <ScrollView
@@ -163,8 +183,34 @@ export default function Configuracoes() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* ===== Seção Visual no Topo ===== */}
+          <Secao titulo="Visual" estiloSecao={e.secao} estiloTitulo={e.tituloSecao}>
+            <LinhaOpcoes
+              titulo="Tema"
+              descricao="Escolha entre o modo escuro (mar profundo) e o modo claro (céu claro)."
+              opcoes={TEMAS}
+              valor={config.tema}
+              onChange={(v) => {
+                atualizar({ tema: v });
+                vibrar.confirmar();
+                falar(v === "claro" ? "Tema claro ativado." : "Tema escuro ativado.");
+              }}
+            />
+
+            <LinhaSwitch
+              titulo="Texto em alto contraste"
+              descricao="Reforça as cores de texto e bordas para máxima legibilidade (padrão WCAG AAA)."
+              valor={config.altoContraste}
+              onChange={(v) => {
+                atualizar({ altoContraste: v });
+                vibrar.confirmar();
+                falar(v ? "Alto contraste ativado." : "Alto contraste desativado.");
+              }}
+            />
+          </Secao>
+
           {/* ===== Voz ===== */}
-          <Secao titulo="Voz">
+          <Secao titulo="Voz" estiloSecao={e.secao} estiloTitulo={e.tituloSecao}>
             <LinhaOpcoes
               titulo="Velocidade da fala"
               opcoes={VELOCIDADES}
@@ -211,7 +257,7 @@ export default function Configuracoes() {
           </Secao>
 
           {/* ===== Descrições ===== */}
-          <Secao titulo="Descrições">
+          <Secao titulo="Descrições" estiloSecao={e.secao} estiloTitulo={e.tituloSecao}>
             <LinhaOpcoes
               titulo="Nível de detalhe"
               descricao="Resumo: até 2 frases. Normal: até 5 frases. Completo: mais detalhes, e demora um pouco mais."
@@ -225,7 +271,7 @@ export default function Configuracoes() {
           </Secao>
 
           {/* ===== Câmera e toque ===== */}
-          <Secao titulo="Câmera e toque">
+          <Secao titulo="Câmera e toque" estiloSecao={e.secao} estiloTitulo={e.tituloSecao}>
             <LinhaOpcoes
               titulo="Qualidade da foto"
               descricao="Mais qualidade ajuda a ler textos pequenos, mas a resposta demora mais."
@@ -236,6 +282,7 @@ export default function Configuracoes() {
                 falar(`Qualidade da foto: ${rotuloDe(QUALIDADES, v)}`);
               }}
             />
+      
             <LinhaSwitch
               titulo="Vibração"
               descricao="Vibra ao tirar a foto, ao confirmar e em caso de erro."
@@ -249,7 +296,7 @@ export default function Configuracoes() {
           </Secao>
 
           {/* ===== Servidor ===== */}
-          <Secao titulo="Servidor">
+          <Secao titulo="Servidor" estiloSecao={e.secao} estiloTitulo={e.tituloSecao}>
             <Text style={e.rotulo}>Endereço do servidor</Text>
             <TextInput
               value={endereco}
@@ -285,7 +332,7 @@ export default function Configuracoes() {
           </Secao>
 
           {/* ===== Sobre ===== */}
-          <Secao titulo="Sobre">
+          <Secao titulo="Sobre" estiloSecao={e.secao} estiloTitulo={e.tituloSecao}>
             <Text style={e.texto}>Farol, versão {versao}.</Text>
             <Text style={e.texto}>
               As fotos são enviadas ao servidor apenas para gerar a descrição e não são guardadas.
@@ -304,41 +351,91 @@ export default function Configuracoes() {
   );
 }
 
-const e = StyleSheet.create({
-  tela: { flex: 1, backgroundColor: cores.fundo },
-  topo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: espaco.md,
-    paddingHorizontal: espaco.md,
-    paddingTop: espaco.sm,
-    paddingBottom: espaco.sm,
-  },
-  voltar: {
-    width: 52,
-    height: 52,
-    borderRadius: raio.pill,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: cores.superficie,
-  },
-  titulo: { color: cores.textoPrincipal, fontSize: fonte.titulo, fontWeight: "800" },
-  conteudo: { padding: espaco.lg, gap: espaco.xl, paddingBottom: espaco.xl * 2 },
-  secao: { gap: espaco.md },
-  tituloSecao: { color: cores.luzSuave, fontSize: fonte.subtitulo, fontWeight: "800" },
-  rotulo: { color: cores.textoPrincipal, fontSize: fonte.corpo, fontWeight: "700" },
-  campo: {
-    minHeight: 60,
-    paddingHorizontal: espaco.md,
-    borderRadius: raio.md,
-    borderWidth: 2,
-    borderColor: cores.borda,
-    backgroundColor: cores.superficie,
-    color: cores.textoPrincipal,
-    fontSize: fonte.corpo,
-  },
-  campoFoco: { borderColor: cores.luz },
-  nota: { color: cores.textoSecundario, fontSize: fonte.pequeno, lineHeight: 21 },
-  status: { color: cores.luzSuave, fontSize: fonte.corpo, lineHeight: 26 },
-  texto: { color: cores.textoSecundario, fontSize: fonte.corpo, lineHeight: 26 },
-});
+function criarEstilos(cores: PaletaCores, altoContraste: boolean) {
+  const eClaro = cores.modo === "claro";
+
+  return StyleSheet.create({
+    tela: { flex: 1, backgroundColor: cores.fundo },
+    topo: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: espaco.md,
+      paddingTop: espaco.sm,
+      paddingBottom: espaco.sm,
+    },
+    topoEsquerda: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: espaco.md,
+    },
+    voltar: {
+      width: 52,
+      height: 52,
+      borderRadius: raio.pill,
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: cores.superficie,
+      borderWidth: altoContraste ? 2 : eClaro ? 1 : 0,
+      borderColor: cores.borda,
+    },
+    botaoTema: {
+      width: 50,
+      height: 50,
+      borderRadius: raio.pill,
+      backgroundColor: cores.superficie,
+      borderWidth: altoContraste ? 3 : 2,
+      borderColor: cores.borda,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    titulo: {
+      color: cores.textoPrincipal,
+      fontSize: fonte.titulo,
+      fontWeight: "800",
+    },
+    conteudo: { padding: espaco.lg, gap: espaco.xl, paddingBottom: espaco.xl * 2 },
+    secao: { gap: espaco.md },
+    tituloSecao: {
+      color: cores.luzSuave,
+      fontSize: fonte.subtitulo,
+      fontWeight: "800",
+    },
+    rotulo: {
+      color: cores.textoPrincipal,
+      fontSize: fonte.corpo,
+      fontWeight: altoContraste ? "800" : "700",
+    },
+    campo: {
+      minHeight: 60,
+      paddingHorizontal: espaco.md,
+      borderRadius: raio.md,
+      borderWidth: altoContraste ? 3 : 2,
+      borderColor: cores.borda,
+      backgroundColor: cores.superficie,
+      color: cores.textoPrincipal,
+      fontSize: fonte.corpo,
+    },
+    campoFoco: {
+      borderColor: eClaro ? cores.luzForte : cores.luz,
+    },
+    nota: {
+      color: cores.textoSecundario,
+      fontSize: fonte.pequeno,
+      lineHeight: 21,
+      fontWeight: altoContraste ? "600" : "400",
+    },
+    status: {
+      color: cores.luzSuave,
+      fontSize: fonte.corpo,
+      lineHeight: 26,
+      fontWeight: "700",
+    },
+    texto: {
+      color: cores.textoSecundario,
+      fontSize: fonte.corpo,
+      lineHeight: 26,
+      fontWeight: altoContraste ? "600" : "400",
+    },
+  });
+}
