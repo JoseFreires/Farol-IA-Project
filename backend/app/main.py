@@ -1,9 +1,8 @@
-import base64
 import io
 import logging
 import secrets
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, UploadFile
 from PIL import Image
 
 from .config import settings
@@ -67,29 +66,27 @@ def ver_sessao(session_id: str):
 
 
 @app.post("/processar", dependencies=[Depends(autenticar)])
-async def processar(req: dict):
+async def processar(
+    imagem: UploadFile | None = File(default=None),
+    imagemBase64: UploadFile | None = File(default=None),
+    imagem_base64: UploadFile | None = File(default=None),
+    sessionId: str | None = Form(default=None),
+    session_id: str | None = Form(default=None),
+    pergunta: str | None = Form(default=None),
+):
     try:
-        session_id = str(req.get("sessionId") or req.get("session_id") or "default-session")
-        pergunta = req.get("pergunta")
-        imagem = req.get("imagemBase64") or req.get("imagem_base64")
+        identificador_sessao = sessionId or session_id or "default-session"
+        arquivo_imagem = imagem or imagemBase64 or imagem_base64
 
-        if not imagem:
+        if not arquivo_imagem:
             raise HTTPException(status_code=400, detail="Imagem obrigatória")
 
-        imagem_limpada = (
-            imagem.replace("data:image/jpeg;base64,", "")
-            .replace("data:image/png;base64,", "")
-            .replace("data:image/jpg;base64,", "")
-        )
-        try:
-            imagem_bytes = base64.b64decode(imagem_limpada, validate=True)
-        except Exception as exc:
-            raise HTTPException(status_code=400, detail="Imagem inválida") from exc
+        imagem_bytes = await arquivo_imagem.read()
 
         validar_imagem_bytes(imagem_bytes)
 
         solicitacao = ProcessingRequest(
-            session_id=session_id,
+            session_id=identificador_sessao,
             imagem=imagem_bytes,
             pergunta=pergunta,
         )

@@ -1,4 +1,3 @@
-import base64
 import io
 import os
 
@@ -61,13 +60,13 @@ def test_rotas_legadas_nao_sao_expostas():
     assert "/boleto/validar" not in caminhos
 
 
-def _imagem_base64():
+def _imagem_bytes():
     buffer = io.BytesIO()
     Image.new("RGB", (64, 64), "white").save(buffer, format="PNG")
-    return base64.b64encode(buffer.getvalue()).decode("ascii")
+    return buffer.getvalue()
 
 
-VALIDA_BASE64 = _imagem_base64()
+IMAGEM_VALIDA = _imagem_bytes()
 
 
 def _headers():
@@ -78,9 +77,9 @@ def test_processar_primeira_descricao_fala():
     resp = client.post(
         "/processar",
         headers=_headers(),
-        json={
-            "sessionId": "sess-01",
-            "imagemBase64": VALIDA_BASE64,
+        data={"sessionId": "sess-01"},
+        files={
+            "imagem": ("foto.png", IMAGEM_VALIDA, "image/png"),
         },
     )
 
@@ -92,6 +91,34 @@ def test_processar_primeira_descricao_fala():
     assert body["mensagem"] == "Uma sala com uma janela ao fundo."
 
 
+def test_processar_aceita_multipart_form_data():
+    resp = client.post(
+        "/processar",
+        headers=_headers(),
+        data={"sessionId": "sess-multipart"},
+        files={
+            "imagem": ("foto.png", IMAGEM_VALIDA, "image/png"),
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["sessionId"] == "sess-multipart"
+
+
+def test_processar_aceita_nome_antigo_do_campo_com_arquivo():
+    resp = client.post(
+        "/processar",
+        headers=_headers(),
+        data={"sessionId": "sess-campo-antigo"},
+        files={
+            "imagemBase64": ("foto.png", IMAGEM_VALIDA, "image/png"),
+        },
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["sessionId"] == "sess-campo-antigo"
+
+
 def test_primeira_chamada_seleciona_descricao_do_ambiente():
     runtime = RuntimeCapturandoSkill()
     app.state.processor = Processor(runtime=runtime)
@@ -99,9 +126,9 @@ def test_primeira_chamada_seleciona_descricao_do_ambiente():
     resp = client.post(
         "/processar",
         headers=_headers(),
-        json={
-            "sessionId": "sess-primeira-descricao",
-            "imagemBase64": VALIDA_BASE64,
+        data={"sessionId": "sess-primeira-descricao"},
+        files={
+            "imagem": ("foto.png", IMAGEM_VALIDA, "image/png"),
         },
     )
 
@@ -113,10 +140,12 @@ def test_contexto_legado_e_ignorado():
     resp = client.post(
         "/processar",
         headers=_headers(),
-        json={
+        data={
             "sessionId": "sess-legacy-context",
             "contexto": "RESIDENCIAL",
-            "imagemBase64": VALIDA_BASE64,
+        },
+        files={
+            "imagem": ("foto.png", IMAGEM_VALIDA, "image/png"),
         },
     )
 
@@ -128,9 +157,9 @@ def test_processar_segunda_chamada_sem_necessidade_nao_fala():
     primeira = client.post(
         "/processar",
         headers=_headers(),
-        json={
-            "sessionId": "sess-01",
-            "imagemBase64": VALIDA_BASE64,
+        data={"sessionId": "sess-01"},
+        files={
+            "imagem": ("foto.png", IMAGEM_VALIDA, "image/png"),
         },
     )
     assert primeira.status_code == 200
@@ -138,9 +167,9 @@ def test_processar_segunda_chamada_sem_necessidade_nao_fala():
     resp = client.post(
         "/processar",
         headers=_headers(),
-        json={
-            "sessionId": "sess-01",
-            "imagemBase64": VALIDA_BASE64,
+        data={"sessionId": "sess-01"},
+        files={
+            "imagem": ("foto.png", IMAGEM_VALIDA, "image/png"),
         },
     )
 
@@ -154,11 +183,11 @@ def test_processar_pergunta_responde():
     resp = client.post(
         "/processar",
         headers=_headers(),
-        json={
+        data={
             "sessionId": "sess-02",
-            "imagemBase64": VALIDA_BASE64,
             "pergunta": "Onde está a mesa?",
         },
+        files={"imagem": ("foto.png", IMAGEM_VALIDA, "image/png")},
     )
 
     assert resp.status_code == 200
@@ -171,13 +200,25 @@ def test_processar_imagem_invalida():
     resp = client.post(
         "/processar",
         headers=_headers(),
+        data={"sessionId": "sess-03"},
+        files={"imagem": ("foto.jpg", b"", "image/jpeg")},
+    )
+
+    assert resp.status_code == 400
+
+
+def test_processar_exige_form_data():
+    resp = client.post(
+        "/processar",
+        headers=_headers(),
         json={
-            "sessionId": "sess-03",
-            "imagemBase64": "nao-e-base64",
+            "sessionId": "sess-json",
+            "imagem": "foto.jpg",
         },
     )
 
     assert resp.status_code == 400
+    assert resp.json()["detail"] == "Imagem obrigatória"
 
 
 def test_falha_de_runtime_nao_retorna_descricao_fallback():
@@ -186,9 +227,9 @@ def test_falha_de_runtime_nao_retorna_descricao_fallback():
     resp = client.post(
         "/processar",
         headers=_headers(),
-        json={
-            "sessionId": "sess-04",
-            "imagemBase64": VALIDA_BASE64,
+        data={"sessionId": "sess-04"},
+        files={
+            "imagem": ("foto.png", IMAGEM_VALIDA, "image/png"),
         },
     )
 

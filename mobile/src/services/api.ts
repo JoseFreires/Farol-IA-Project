@@ -1,4 +1,4 @@
-import { fetch as streamFetch } from "expo/fetch"; // fetch com suporte a streaming
+import { Platform } from "react-native";
 
 import { obterConfig } from "../settings/atual";
 import { normalizarUrl } from "../settings/tipos";
@@ -21,7 +21,7 @@ export type Modo = "ambiente" | "texto" | "produto" | "documento";
 export type Mensagem = { role: "user" | "assistant"; texto: string };
 
 type Params = {
-  imagemBase64: string;
+  imagemUri: string;
   modo: Modo;
   pergunta?: string;
   historico?: Mensagem[];
@@ -29,7 +29,7 @@ type Params = {
 };
 
 export async function descrever({
-  imagemBase64,
+  imagemUri,
   modo,
   pergunta,
   historico = [],
@@ -38,39 +38,36 @@ export async function descrever({
   const base = urlServidor();
   if (!base) throw new Error("Endereço do servidor não configurado.");
 
-  const resp = await streamFetch(`${base}/descrever`, {
-    method: "POST",
-    headers: cabecalhos,
-    body: JSON.stringify({
-      imagem_base64: imagemBase64,
-      modo,
-      pergunta,
-      historico,
-      detalhe: obterConfig().detalhe,
-    }),
-  });
-  if (!resp.ok || !resp.body) throw new Error(`Erro ${resp.status}`);
-
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    const eventos = buffer.split("\n\n");
-    buffer = eventos.pop() ?? "";
-
-    for (const ev of eventos) {
-      const dado = ev.replace(/^data: /, "").trim();
-      if (!dado || dado === "[FIM]") continue;
-      const json = JSON.parse(dado);
-      if (json.erro) throw new Error(json.erro);
-      if (json.texto) onTexto(json.texto);
-    }
+  const formData = new FormData();
+  if (Platform.OS === "web") {
+    const respostaImagem = await fetch(imagemUri);
+    if (!respostaImagem.ok) throw new Error("Não foi possível carregar a imagem.");
+    formData.append("imagem", await respostaImagem.blob(), "captura.jpg");
+  } else {
+    type ArquivoNativo = { uri: string; name: string; type: string };
+    type FormDataNativo = FormData & {
+      append(nome: string, valor: string | ArquivoNativo): void;
+    };
+    (formData as FormDataNativo).append("imagem", {
+      uri: imagemUri,
+      name: "captura.jpg",
+      type: "image/jpeg",
+    });
   }
+  formData.append("modo", modo);
+  formData.append("pergunta", pergunta ?? "");
+  formData.append("historico", JSON.stringify(historico));
+  formData.append("detalhe", obterConfig().detalhe);
+
+  const resp = await fetch(`${base}/processar`, {
+    method: "POST",
+    headers: { Authorization: cabecalhos.Authorization },
+    body: formData,
+  });
+  if (!resp.ok) throw new Error(`Erro ${resp.status}`);
+
+  const resultado: { deveFalar: boolean; mensagem: string | null } = await resp.json();
+  if (resultado.deveFalar && resultado.mensagem) onTexto(resultado.mensagem);
 }
 
 // Chama /health com limite de tempo. Aceita um endereço para testar antes de salvar.

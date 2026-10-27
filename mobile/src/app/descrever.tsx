@@ -81,9 +81,9 @@ export default function Descrever() {
         const img = await ImageManipulator.manipulateAsync(
           foto.uri,
           [{ resize: { width: LARGURA_FOTO[obterConfig().qualidadeFoto] } }],
-          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG, base64: true },
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
         );
-        imagem.current = img.base64 ?? null;
+        imagem.current = img.uri;
         historico.current = [];
       }
       if (!imagem.current) {
@@ -96,7 +96,7 @@ export default function Descrever() {
       let completo = "";
 
       await descrever({
-        imagemBase64: imagem.current,
+        imagemUri: imagem.current,
         modo,
         pergunta,
         historico: historico.current,

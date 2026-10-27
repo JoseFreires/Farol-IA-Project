@@ -90,27 +90,27 @@ Rota simples de disponibilidade que retorna:
 
 ### `POST /processar`
 
-Exige autenticação pelo cabeçalho `Authorization`. O corpo é recebido como objeto JSON sem modelo Pydantic dedicado. Os campos reconhecidos são:
+Exige autenticação pelo cabeçalho `Authorization`. O corpo deve ser enviado como `multipart/form-data`. Os campos reconhecidos são:
 
 | Campo | Alternativa aceita | Comportamento |
 |---|---|---|
 | `sessionId` | `session_id` | Identificador de sessão; padrão `default-session`. |
-| `imagemBase64` | `imagem_base64` | Imagem obrigatória em Base64; prefixos data URI JPEG/PNG/JPG são removidos. |
+| `imagem` | `imagemBase64`, `imagem_base64` | Arquivo da imagem (JPEG/PNG). Os nomes antigos são aceitos para compatibilidade. |
 | `pergunta` | — | Texto opcional que direciona a seleção da skill. |
 
 O `contexto` não faz parte do contrato: o fluxo visual atual não usa essa informação. Clientes podem omitir o campo; se um cliente antigo ainda o enviar, ele é ignorado.
 
 Exemplo de requisição sem contexto:
 
-```json
-{
-  "sessionId": "sessao-123",
-  "imagemBase64": "<base64 da imagem>",
-  "pergunta": "Onde está a mesa?"
-}
+```bash
+curl.exe -X POST http://localhost:8000/processar \
+  -H "Authorization: <token>" \
+  -F "sessionId=sessao-123" \
+  -F "imagem=@C:\caminho\foto.jpg" \
+  -F "pergunta=Onde está a mesa?"
 ```
 
-O endpoint decodifica Base64 com validação estrutural e tenta verificar os bytes com Pillow. Atualmente, bytes não vazios que não sejam reconhecidos pelo Pillow são aceitos por `validar_imagem_bytes`; nesse caso o filtro OpenCV não consegue preparar um frame e o fluxo continua para o runtime. A verificação não equivale a uma validação estrita de imagem.
+O endpoint lê os bytes do arquivo enviado e tenta verificar a imagem com Pillow. Atualmente, bytes não vazios que não sejam reconhecidos pelo Pillow são aceitos por `validar_imagem_bytes`; nesse caso o filtro OpenCV não consegue preparar um frame e o fluxo continua para o runtime. A verificação não equivale a uma validação estrita de imagem.
 
 O resultado normal contém:
 
@@ -132,7 +132,7 @@ O resultado normal contém:
 | Situação | HTTP |
 |---|---:|
 | Processamento concluído ou frame repetido sem pergunta | 200 |
-| Imagem ausente, Base64 inválido ou imagem vazia | 400 |
+| Imagem ausente ou arquivo vazio | 400 |
 | Falha interna de runtime, análise ou regras | 500 |
 | Falha de autenticação | 401 |
 
