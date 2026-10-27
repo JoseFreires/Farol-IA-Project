@@ -4,6 +4,7 @@ description: Descreve o ambiente visível em uma frase curta e útil para pessoa
 version: "0.2.0"
 language: pt-BR
 executor: ollama
+model: qwen2.5vl:7b
 ---
 
 # Descrever ambiente

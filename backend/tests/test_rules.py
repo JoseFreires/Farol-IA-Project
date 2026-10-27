@@ -123,6 +123,25 @@ def test_evento_novo_nao_e_descartado_pelo_cooldown_da_fala_anterior():
     assert decisao.mensagem == "O objeto copo não aparece mais na imagem atual."
 
 
+def test_remocao_anuncia_descricao_completa_e_quantidade():
+    regras = Rules(RulesConfig())
+    evento = VisualEvent(
+        tipo="mudanca",
+        objeto="copos de cerveja",
+        confianca=0.9,
+        descricao="Dois copos de cerveja não aparecem mais.",
+        metadados={"tipo_mudanca": "OBJETO_REMOVIDO"},
+    )
+
+    decisao = regras.avaliar(
+        AnalysisData(session_id="sessao", eventos=(evento,)),
+        SessionMemory(descricao_inicial_realizada=True),
+        None,
+    )
+
+    assert decisao.mensagem == "Dois copos de cerveja não aparecem mais."
+
+
 def test_evento_abaixo_do_limiar_nao_e_anunciado():
     regras = Rules(RulesConfig())
     evento = VisualEvent(tipo="mudanca", confianca=0.69, descricao="Mudança.")

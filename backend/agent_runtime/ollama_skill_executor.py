@@ -23,13 +23,24 @@ class OllamaSkillExecutor:
             "ultima_descricao": request.input_data.get("ultima_descricao"),
             "objetos_recentes": request.input_data.get("objetos_recentes"),
             "pergunta": request.input_data.get("pergunta"),
-            "indice_mudanca_visual": request.input_data.get("indice_mudanca_visual"),
             "regioes_alteradas": request.input_data.get("regioes_alteradas"),
         }
+        if (
+            request.skill_name != "identify-change"
+            and request.input_data.get("indice_mudanca_visual") is not None
+        ):
+            payload["indice_mudanca_visual"] = request.input_data[
+                "indice_mudanca_visual"
+            ]
+
+        model = definition.metadata.get("model")
+        if model is not None and (not isinstance(model, str) or not model.strip()):
+            raise ValueError(f"Modelo inválido para skill {definition.name}")
 
         raw = await self.client.analyze_image(
             image=request.image,
             previous_image=request.previous_image,
+            model=model,
             system_instructions=definition.instructions,
             input_data=payload,
             output_schema=output_model.model_json_schema(),

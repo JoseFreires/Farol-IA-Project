@@ -4,6 +4,7 @@ description: Analisa uma imagem e produz hipóteses estruturadas de possíveis o
 version: "0.2.0"
 language: pt-BR
 executor: ollama
+model: qwen2.5vl:7b
 ---
 
 # Detectar risco

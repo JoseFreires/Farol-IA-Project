@@ -281,6 +281,8 @@ class Rules:
             and evento.metadados.get("tipo_mudanca") == "OBJETO_REMOVIDO"
             and evento.objeto
         ):
+            if evento.descricao:
+                return evento.descricao
             return f"O objeto {evento.objeto} não aparece mais na imagem atual."
         if evento.tipo == "obstaculo" and evento.objeto and evento.posicao:
             return f"Atenção, {evento.objeto} à {self._posicao_para_texto(evento.posicao)}."

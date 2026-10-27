@@ -27,30 +27,21 @@ class LocalizarObjetoResultado(BaseModel):
     resposta_semantica: str
 
 
-class ObjetoAlterado(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    nome: str | None = None
-    posicao_anterior: str | None = None
-    posicao_atual: str | None = None
-    confianca: float | None = Field(default=None, ge=0.0, le=1.0)
-
-
 class MudancaItem(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tipo: Literal[
         "OBJETO_NOVO",
         "OBJETO_REMOVIDO",
+        "OBJETO_MOVIDO",
         "OBJETO_REPOSICIONADO",
         "ESTADO_ALTERADO",
         "POSSIVEL_BLOQUEIO",
         "ALTERACAO_LAYOUT",
     ]
-    descricao: str | None = None
-    objetos_alterados: list[ObjetoAlterado] = Field(default_factory=list)
+    descricao: str
+    objeto: str
     confianca: float | None = Field(default=None, ge=0.0, le=1.0)
-    fonte: str | None = None
 
 
 class MudancaResultado(BaseModel):
@@ -65,15 +56,6 @@ class MudancaResultado(BaseModel):
         if self.houve_mudanca_relevante != bool(self.mudancas):
             raise ValueError(
                 "houve_mudanca_relevante deve corresponder à lista mudancas"
-            )
-        if self.houve_mudanca_relevante and any(
-            item.confianca is None
-            and all(objeto.confianca is None for objeto in item.objetos_alterados)
-            and self.confianca_geral is None
-            for item in self.mudancas
-        ):
-            raise ValueError(
-                "Toda mudança deve informar confiança no item, objeto ou resultado"
             )
         return self
 
@@ -235,26 +217,14 @@ class AgentRuntime:
         item: MudancaItem,
         confianca_geral: float | None,
     ) -> VisualEvent:
-        objeto = item.objetos_alterados[0] if item.objetos_alterados else None
-        confianca = (
-            item.confianca
-            if item.confianca is not None
-            else objeto.confianca
-            if objeto is not None and objeto.confianca is not None
-            else confianca_geral or 0.0
-        )
+        confianca = item.confianca if item.confianca is not None else confianca_geral or 0.0
         return VisualEvent(
             tipo="risco" if "BLOQUEIO" in item.tipo.upper() else "mudanca",
-            objeto=objeto.nome if objeto else None,
-            posicao=objeto.posicao_atual if objeto else None,
+            objeto=item.objeto,
             confianca=float(confianca),
             descricao=item.descricao,
             metadados={
                 "tipo_mudanca": item.tipo,
-                "objetos_alterados": [
-                    objeto.model_dump(exclude_none=True)
-                    for objeto in item.objetos_alterados
-                ],
-                "fonte": item.fonte,
+                "objetos_alterados": [{"nome": item.objeto}],
             },
         )

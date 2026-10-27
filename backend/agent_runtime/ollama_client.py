@@ -18,6 +18,8 @@ class OllamaConfig:
     max_retries: int = 2
     keep_alive: str = "5m"
     temperature: float = 0.0
+    num_ctx: int = 8192
+    num_predict: int = 512
 
 
 class OllamaClient:
@@ -29,6 +31,7 @@ class OllamaClient:
         *,
         image: bytes,
         previous_image: bytes | None = None,
+        model: str | None = None,
         system_instructions: str,
         input_data: dict[str, Any],
         output_schema: dict[str, Any],
@@ -42,14 +45,18 @@ class OllamaClient:
         images.append(base64.b64encode(image).decode("utf-8"))
 
         payload = {
-            "model": self.config.model,
+            "model": model or self.config.model,
             "messages": [
                 {"role": "system", "content": system_instructions},
                 {"role": "user", "content": content, "images": images},
             ],
             "format": output_schema,
             "stream": False,
-            "options": {"temperature": self.config.temperature},
+            "options": {
+                "temperature": self.config.temperature,
+                "num_ctx": self.config.num_ctx,
+                "num_predict": self.config.num_predict,
+            },
             "keep_alive": self.config.keep_alive,
         }
         return await self._post(payload, correlation_id)

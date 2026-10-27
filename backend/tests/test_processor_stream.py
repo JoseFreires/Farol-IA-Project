@@ -257,7 +257,7 @@ def test_processador_anuncia_remocao_nova_mesmo_apos_fala_recente():
     assert inicial.motivo == "DESCRICAO_INICIAL"
     assert alteracao.deve_falar
     assert alteracao.motivo == "MUDANCA_DETECTADA"
-    assert alteracao.mensagem == "O objeto copo não aparece mais na imagem atual."
+    assert alteracao.mensagem == "Um dos dois copos não aparece mais."
     assert runtime.chamadas == 2
 
 
@@ -300,6 +300,7 @@ def test_runtime_encaminha_imagem_anterior_para_skill_de_mudanca():
                 data=output_model(
                     houve_mudanca_relevante=False,
                     mudancas=[],
+                    confianca_geral=0.9,
                 ),
                 success=True,
                 duration_ms=0,
@@ -332,9 +333,9 @@ def test_runtime_mapeia_remocao_e_herda_confianca_do_objeto():
                         "mudancas": [
                             {
                                 "tipo": "OBJETO_REMOVIDO",
-                                "objetos_alterados": [
-                                    {"nome": "copo", "confianca": 0.88}
-                                ],
+                                "descricao": "Um copo não aparece mais.",
+                                "objeto": "copo",
+                                "confianca": 0.88,
                             }
                         ],
                         "confianca_geral": 0.91,
@@ -377,7 +378,14 @@ def test_schema_de_mudancas_rejeita_confiança_invalida_e_saida_inconsistente():
         MudancaResultado.model_validate(
             {
                 "houve_mudanca_relevante": True,
-                "mudancas": [{"tipo": "OBJETO_REMOVIDO", "campo_desconhecido": True}],
+                "mudancas": [
+                    {
+                        "tipo": "OBJETO_REMOVIDO",
+                        "descricao": "Um copo não aparece mais.",
+                        "objeto": "copo",
+                        "campo_desconhecido": True,
+                    }
+                ],
                 "confianca_geral": 0.9,
             }
         )
@@ -386,7 +394,9 @@ def test_schema_de_mudancas_rejeita_confiança_invalida_e_saida_inconsistente():
         MudancaResultado.model_validate(
             {
                 "houve_mudanca_relevante": True,
-                "mudancas": [{"tipo": "OBJETO_REMOVIDO"}],
+                "mudancas": [
+                    {"tipo": "OBJETO_REMOVIDO", "descricao": "Um copo sumiu.", "objeto": "copo"}
+                ],
             }
         )
 
@@ -395,7 +405,12 @@ def test_schema_de_mudancas_rejeita_confiança_invalida_e_saida_inconsistente():
             {
                 "houve_mudanca_relevante": True,
                 "mudancas": [
-                    {"tipo": "OBJETO_REMOVIDO", "confianca": 1.2}
+                    {
+                        "tipo": "OBJETO_REMOVIDO",
+                        "descricao": "Um copo sumiu.",
+                        "objeto": "copo",
+                        "confianca": 1.2,
+                    }
                 ],
                 "confianca_geral": 0.9,
             }
@@ -406,6 +421,7 @@ def test_runtime_usa_confianca_geral_quando_item_nao_informa_confianca():
     item = MudancaItem(
         tipo="OBJETO_REMOVIDO",
         descricao="Um copo foi removido.",
+        objeto="copo",
     )
 
     evento = AgentRuntime._evento_mudanca(item, 0.91)

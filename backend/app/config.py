@@ -6,7 +6,7 @@ class Settings(BaseSettings):
 
     app_token: str
     ollama_host: str = "http://localhost:11434"
-    ollama_model: str = "gemma3:4b"
+    ollama_model: str = "qwen2.5vl:7b"
     ollama_keep_alive: str = "30m"
 
 

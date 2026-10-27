@@ -49,18 +49,32 @@ def test_ollama_recebe_imagem_anterior_antes_da_atual(monkeypatch):
         base64.b64encode(b"imagem-atual").decode("utf-8"),
     ]
     assert "primeiro a imagem anterior, depois a imagem atual" in user_message["content"]
+    assert payload["options"]["num_ctx"] == 8192
+    assert payload["options"]["num_predict"] == 512
+    assert payload["model"] == "gemma3:4b"
 
 
 def test_executor_envia_schema_estrito_e_valida_mudanca():
     class ClienteFalso:
         schema = None
+        input_data = None
+        model = None
 
         async def analyze_image(self, **kwargs):
             self.schema = kwargs["output_schema"]
+            self.input_data = kwargs["input_data"]
+            self.model = kwargs["model"]
             return json.dumps(
                 {
                     "houve_mudanca_relevante": True,
-                    "mudancas": [{"tipo": "OBJETO_REMOVIDO"}],
+                    "mudancas": [
+                        {
+                            "tipo": "OBJETO_REMOVIDO",
+                            "descricao": "Um copo não aparece mais.",
+                            "objeto": "copo",
+                            "confianca": 0.9,
+                        }
+                    ],
                     "confianca_geral": 0.9,
                 }
             )
@@ -73,11 +87,12 @@ def test_executor_envia_schema_estrito_e_valida_mudanca():
         instructions="Compare as imagens e retorne JSON.",
         file_path=Path("SKILL.md"),
         executor="ollama",
+        metadata={"model": "qwen2.5vl:7b"},
     )
     request = SkillExecutionRequest(
         skill_name="identify-change",
         image=b"imagem-atual",
-        input_data={},
+        input_data={"indice_mudanca_visual": 0.18},
         session_id="sessao",
         correlation_id="sessao",
     )
@@ -94,18 +109,19 @@ def test_executor_envia_schema_estrito_e_valida_mudanca():
         == [
             "OBJETO_NOVO",
             "OBJETO_REMOVIDO",
+            "OBJETO_MOVIDO",
             "OBJETO_REPOSICIONADO",
             "ESTADO_ALTERADO",
             "POSSIVEL_BLOQUEIO",
             "ALTERACAO_LAYOUT",
         ]
     )
-    assert (
-        client.schema["$defs"]["ObjetoAlterado"]["properties"]["confianca"]["anyOf"][0][
-            "maximum"
-        ]
-        == 1.0
-    )
+    assert "objeto" in client.schema["$defs"]["MudancaItem"]["properties"]
+    assert client.schema["$defs"]["MudancaItem"]["properties"]["confianca"]["anyOf"][0][
+        "maximum"
+    ] == 1.0
+    assert "indice_mudanca_visual" not in client.input_data
+    assert client.model == "qwen2.5vl:7b"
 
 
 def test_executor_rejeita_saida_json_sem_confianca():
@@ -114,7 +130,13 @@ def test_executor_rejeita_saida_json_sem_confianca():
             return json.dumps(
                 {
                     "houve_mudanca_relevante": True,
-                    "mudancas": [{"tipo": "OBJETO_REMOVIDO"}],
+                    "mudancas": [
+                        {
+                            "tipo": "OBJETO_REMOVIDO",
+                            "descricao": "Um copo não aparece mais.",
+                            "objeto": "copo",
+                        }
+                    ],
                 }
             )
 

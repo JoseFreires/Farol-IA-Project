@@ -1,63 +1,51 @@
 ---
 name: identify-change
-description: Identifica mudanças semânticas estritas entre o estado atual da cena e observações recentes. Rejeita alterações se houver mudança total de contexto espacial.
-version: "0.3.0"
+description: Compara duas imagens do ambiente e identifica mudanças semânticas reais.
+version: "0.6.0"
 language: pt-BR
 executor: ollama
+model: qwen2.5vl:7b
 ---
 
-# Identificar mudança na cena com rigor espacial
-
-## Objetivo
-
-Compare o estado atual do ambiente com as observações recentes e identifique apenas mudanças semânticas reais e relevantes, garantindo que o espaço físico avaliado é o mesmo.
+# Identificar mudança na cena
 
 ## Entradas
 
-- `imagem_atual`
-- `ultima_descricao`, opcional
-- `objetos_recentes`
-- `objetos_atuais`
-- `indice_mudanca_visual`, opcional
-- `regioes_alteradas`, opcional
+- Imagem 1: estado anterior.
+- Imagem 2: estado atual.
+- `ultima_descricao` e `objetos_recentes`: contexto auxiliar; as imagens prevalecem.
 
-## Procedimento Crítico de Continuidade
+## Procedimento
 
-1. **Verificação de Mudança de Divisão/Contexto:** Antes de comparar objetos, verifique se a tipologia do ambiente mudou drasticamente entre a imagem anterior e a atual (ex: transição de uma cozinha para uma casa de banho). Se o espaço físico for manifestamente diferente, **interrompa a análise de remoção** e retorne obrigatoriamente `SEM_MUDANCA_RELEVANTE` (ou declare uma alteração global de ambiente).
-2. Quando duas imagens válidas do mesmo espaço forem anexadas, compare a primeira (imagem anterior) com a segunda (imagem atual)[cite: 6, 7].
-3. Ignore rigorosamente mudanças de iluminação, pequenos movimentos da câmara e variações de enquadramento[cite: 6, 7].
-4. Retorne estritamente JSON válido, sem texto adicional[cite: 6, 7].
+1. Faça um inventário independente da Imagem 1 e depois da Imagem 2. Conte todas as instâncias visíveis de cada tipo de objeto; não use `ultima_descricao` como contagem visual.
+2. Confira elementos fixos e o enquadramento. Compare somente áreas da cena que possam ser reconhecidas nas duas imagens.
+3. Associe os mesmos objetos pela aparência e pela posição relativa. Mudança de zona, zoom ou recorte não transforma um objeto existente em novo.
+4. Antes de classificar, compare a quantidade anterior e atual de cada tipo. Se há mais no estado anterior, a diferença é remoção; se há mais no atual, é objeto novo. A lista `mudancas` deve representar a diferença de quantidade inteira, sem omitir exemplares nem inventar quantidade.
+5. Só reporte `OBJETO_NOVO` se a imagem anterior mostrar claramente a área onde o item poderia estar e confirmar sua ausência. Só reporte `OBJETO_REMOVIDO` se a área correspondente continuar visível na imagem atual. Não deduza remoção de objetos cortados pelo enquadramento.
+6. Se a diferença de quantidade estiver clara, mas não for possível identificar individualmente cada exemplar, produza uma mudança com o nome no plural e informe o total na descrição (por exemplo, "Dois copos de cerveja não aparecem mais"). Não reduza uma diferença de dois ou mais para "um copo".
+7. Descarte diferenças de iluminação, sombra, reflexo e cor. Se não for possível distinguir mudança real de alteração de enquadramento, não reporte a mudança.
 
+Nunca invente objetos ou mudanças. Não declare caminho seguro nem estime distâncias. Se o espaço for claramente outro e não houver elementos fixos em comum, retorne sem mudanças.
 
-## Regras de Ouro
+## Saída
 
-- **Nunca alucine objetos** que nunca foram mencionados no histórico ou que pertencem a outra tipologia de divisão[cite: 6, 7].
-- Se o contexto visual mudou por completo, o comportamento correto é assumir ausência de comparabilidade e retornar `SEM_MUDANCA_RELEVANTE`.
-- Use `POSSIVEL_BLOQUEIO`, nunca bloqueio confirmado[cite: 6, 7].
-- Não declare caminho seguro nem estime distâncias em metros[cite: 6, 7].
-- O nível de confiança deve refletir a certeza absoluta da alteração (entre `0.0` e `1.0`)[cite: 6, 7].
+Retorne somente JSON válido, sem texto adicional:
 
-## Saída obrigatória
-
-Exemplo de mudança real confirmada no mesmo espaço:
 ```json
 {
   "houve_mudanca_relevante": true,
   "mudancas": [
     {
-      "tipo": "OBJETO_NOVO",
-      "descricao": "Uma cadeira foi colocada na zona central.",
-      "objetos_alterados": [
-        {
-          "nome": "cadeira",
-          "posicao_anterior": null,
-          "posicao_atual": "CENTRO",
-          "confianca": 0.85
-        }
-      ],
-      "confianca": 0.85,
-      "fonte": "ANALISE_E_COMPARACAO"
+      "tipo": "OBJETO_REMOVIDO",
+      "descricao": "Dois copos de cerveja que estavam sobre a mesa não aparecem mais.",
+      "objeto": "copos de cerveja",
+      "confianca": 0.85
     }
   ],
   "confianca_geral": 0.85
 }
+```
+
+Tipos permitidos: `OBJETO_NOVO`, `OBJETO_REMOVIDO`, `OBJETO_MOVIDO`, `OBJETO_REPOSICIONADO`, `ESTADO_ALTERADO`, `POSSIVEL_BLOQUEIO`, `ALTERACAO_LAYOUT`.
+
+Se não houver mudança confirmável, retorne `"houve_mudanca_relevante": false`, `"mudancas": []` e uma `confianca_geral` entre 0 e 1. Para mudanças reportadas, a confiança deve ser de pelo menos 0.5 e refletir a evidência visual.
