@@ -1,4 +1,4 @@
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Linking, ScrollView, StyleSheet, Text, View } from "react-native";
 import { router } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -6,9 +6,19 @@ import { Botao } from "../components/Botao";
 import { CartaoMenu } from "../components/CartaoMenu";
 import { Logo } from "../components/Logo";
 import { CONFIGURACOES, EM_BREVE, FUNCOES } from "../data/funcoes";
+import { useEscuta, type EstadoEscuta } from "../escuta/EscutaContext";
 import { cores, espaco, fonte } from "../theme/tema";
 
+const TEXTO_ESTADO: Record<EstadoEscuta, string> = {
+  desligada: "Desligado. Ative para chamar o Farol pela voz.",
+  iniciando: "Ligando o assistente...",
+  ouvindo: "Ouvindo. Diga Farol e faça sua pergunta.",
+  erro: "Não foi possível ligar o assistente neste aparelho.",
+};
+
 export default function Menu() {
+  const { estado, ativa, permissaoNegada, alternar } = useEscuta();
+
   return (
     <SafeAreaView style={e.tela}>
       <ScrollView contentContainerStyle={e.conteudo} showsVerticalScrollIndicator={false}>
@@ -35,6 +45,27 @@ export default function Menu() {
             />
           ))}
         </View>
+
+        <Text accessibilityRole="header" style={e.secao}>
+          Assistente de voz
+        </Text>
+        <Text accessibilityLiveRegion="polite" style={e.subtitulo}>
+          {TEXTO_ESTADO[estado]}
+        </Text>
+        <Botao
+          titulo={ativa ? "Desligar assistente" : "Ativar assistente"}
+          variante={ativa ? "secundario" : "primario"}
+          onPress={alternar}
+          accessibilityHint="Liga ou desliga o microfone para ouvir a palavra Farol"
+        />
+        {permissaoNegada && (
+          <Botao
+            titulo="Abrir ajustes do aparelho"
+            variante="secundario"
+            onPress={() => Linking.openSettings()}
+            accessibilityHint="Permita o microfone para o Farol"
+          />
+        )}
 
         <Text accessibilityRole="header" style={e.secao}>
           Ajustes

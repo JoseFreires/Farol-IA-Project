@@ -8,22 +8,13 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 
 import { Botao } from "../components/Botao";
 import { FUNCOES } from "../data/funcoes";
+import { useEscuta } from "../escuta/EscutaContext";
 import { descrever, Mensagem, Modo } from "../services/api";
-import { criarNarrador, falar, parar } from "../services/fala";
+import { aguardarFimDaFala, criarNarrador, falar, parar } from "../services/fala";
 import { vibrar } from "../services/vibracao";
 import { obterConfig } from "../settings/atual";
 import { LARGURA_FOTO } from "../settings/tipos";
 import { cores, espaco, fonte, raio } from "../theme/tema";
-
-// O módulo de voz só existe em build de desenvolvimento (não no Expo Go nem na web)
-let Voice: any = null;
-if (Platform.OS !== "web") {
-  try {
-    Voice = require("@react-native-voice/voice").default;
-  } catch {
-    Voice = null;
-  }
-}
 
 export default function Descrever() {
   // ===== 1. TODOS OS HOOKS AQUI, NO TOPO (antes de qualquer return) =====
@@ -39,19 +30,14 @@ export default function Descrever() {
   const [resposta, setResposta] = useState("");
 
   // Guarda a versão mais recente de "executar" para o listener de voz
-  const executarRef = useRef<(pergunta?: string) => Promise<void>>(async () => {});
+ const executarRef = useRef<(pergunta?: string) => Promise<void>>(async () => {});
 
-  useEffect(() => {
-    if (!Voice) return;
-    Voice.onSpeechResults = (ev: { value?: string[] }) => {
-      const texto = ev.value?.[0];
-      if (texto) executarRef.current(texto);
-    };
-    Voice.onSpeechError = () => falar("Não entendi. Toque e tente de novo.");
-    return () => {
-      Voice.destroy().then(Voice.removeAllListeners);
-    };
-  }, []);
+   // Escuta global (palavra "Farol" ou botão Perguntar): recebe a pergunta já transcrita
+  const { aoReceberPergunta, pausar, retomar, perguntarAgora } = useEscuta();
+  useEffect(
+    () => aoReceberPergunta((pergunta) => executarRef.current(pergunta)),
+    [aoReceberPergunta],
+  );
 
   // ===== 2. VALORES E FUNÇÕES =====
   const funcao = FUNCOES.find((f) => f.modo === modoParam) ?? FUNCOES[0];
@@ -68,6 +54,7 @@ export default function Descrever() {
     setOcupado(true);
     setResposta("");
     parar();
+    pausar();
 
     try {
       if (!pergunta) {
@@ -125,22 +112,19 @@ export default function Descrever() {
       );
     } finally {
       setOcupado(false);
+      aguardarFimDaFala().then(retomar);
     }
   }
   executarRef.current = executar;
 
-  async function ouvirPergunta() {
-    if (!Voice) {
-      falar("O reconhecimento de voz não está disponível neste aparelho.");
-      return;
-    }
+ async function ouvirPergunta() {
+    if (ocupado) return;
     if (!imagem.current) {
       falar("Primeiro descreva uma imagem.");
       return;
     }
     parar();
-    vibrar.toque();
-    await Voice.start("pt-BR");
+    await perguntarAgora(); // liga o microfone se preciso; a pergunta chega pelo aoReceberPergunta
   }
 
   // ===== 3. SÓ AGORA OS RETURNS ANTECIPADOS =====

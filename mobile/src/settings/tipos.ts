@@ -11,6 +11,7 @@ export type Configuracoes = {
   qualidadeFoto: QualidadeFoto;
   vibracao: boolean;
   servidorUrl: string; // vazio = usar o endereço do .env
+  escutaAtiva: boolean; // assistente de voz ("Farol") ligado
 };
 
 export const PADRAO: Configuracoes = {
@@ -21,20 +22,21 @@ export const PADRAO: Configuracoes = {
   qualidadeFoto: "rapida",
   vibracao: true,
   servidorUrl: "",
+  escutaAtiva: false,
 };
 
 // Tradução das escolhas para valores reais
 export const TAXA_FALA: Record<VelocidadeFala, number> = {
-  lenta: 0.75,
-  normal: 1,
-  rapida: 1.3,
-  muitoRapida: 1.7,
+  lenta: 0.5,
+  normal: 1.1,
+  rapida: 2,
+  muitoRapida: 3,
 };
 
 export const TOM_VOZ: Record<TomVoz, number> = {
-  grave: 0.8,
-  normal: 1,
-  agudo: 1.2,
+  grave: 0.5,
+  normal: 1.5,
+  agudo: 2.5,
 };
 
 export const LARGURA_FOTO: Record<QualidadeFoto, number> = {
@@ -65,6 +67,7 @@ export function normalizar(bruto: unknown): Configuracoes {
     qualidadeFoto: escolher(b.qualidadeFoto, QUALIDADES, PADRAO.qualidadeFoto),
     vibracao: typeof b.vibracao === "boolean" ? b.vibracao : PADRAO.vibracao,
     servidorUrl: typeof b.servidorUrl === "string" ? b.servidorUrl : PADRAO.servidorUrl,
+     escutaAtiva: typeof b.escutaAtiva === "boolean" ? b.escutaAtiva : PADRAO.escutaAtiva,
   };
 }
 
