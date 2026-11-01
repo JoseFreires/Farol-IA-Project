@@ -1,6 +1,6 @@
 import { File as ExpoFile } from "expo-file-system";
 import { fetch as streamFetch } from "expo/fetch"; // fetch com suporte a streaming
-
+import { Platform } from "react-native";
 import { obterConfig } from "../settings/atual";
 import { normalizarUrl } from "../settings/tipos";
 
@@ -41,11 +41,11 @@ export async function descrever({
 
   const corpo = new FormData();
   if (Platform.OS === "web") {
-    const respostaImagem = await fetch(imagemUri);
+    const respostaImagem = await fetch(imagemBase64);
     if (!respostaImagem.ok) throw new Error("Não foi possível ler a imagem.");
     corpo.append("imagem", await respostaImagem.blob(), "imagem.jpg");
   } else {
-    corpo.append("imagem", new ExpoFile(imagemUri));
+    corpo.append("imagem", new ExpoFile(imagemBase64));
   }
   corpo.append("modo", modo);
   corpo.append("detalhe", obterConfig().detalhe);
@@ -100,14 +100,14 @@ export type ResultadoProcessamento = {
 };
 
 type ProcessarParams = {
-  imagemUri: string;
+  imagemBase64: string;
   sessionId?: string;
   contexto?: string;
   pergunta?: string;
 };
 
 export async function processar({
-  imagemUri,
+  imagemBase64,
   sessionId = "mobile-session",
   contexto = "RESIDENCIAL",
   pergunta,
@@ -117,11 +117,11 @@ export async function processar({
 
   const corpo = new FormData();
   if (Platform.OS === "web") {
-    const respostaImagem = await fetch(imagemUri);
+    const respostaImagem = await fetch(imagemBase64);
     if (!respostaImagem.ok) throw new Error("Não foi possível ler a imagem.");
     corpo.append("imagem", await respostaImagem.blob(), "imagem.jpg");
   } else {
-    corpo.append("imagem", new ExpoFile(imagemUri));
+    corpo.append("imagem", new ExpoFile(imagemBase64));
   }
   corpo.append("sessionId", sessionId);
   corpo.append("contexto", contexto);
