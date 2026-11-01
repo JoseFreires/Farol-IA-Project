@@ -1,11 +1,21 @@
 import { Platform } from "react-native";
 
+// ---------------------------------------------------------------------------
+// Motor de escuta: reconhece fala continuamente (offline, com Vosk), procura a
+// palavra "farol" e entrega a pergunta que vem depois. Não depende de React.
+// ---------------------------------------------------------------------------
+
+// Pasta do modelo de português dentro de assets/ (o nome PRECISA começar com "model-")
 export const MODELO = "model-small-pt-0.3";
 
+// "farol" sozinha = aguarda a pergunta no resultado seguinte
+// "farol, o que tem na frente?" = a pergunta já vem na mesma frase
 const ATIVACAO = /\bfarol\b[\s,.!?:;-]*/;
 
-const TEMPO_PARA_PERGUNTA_MS = 20_000;
-const FOLGA_APOS_PAUSA_MS = 800;
+const TEMPO_PARA_PERGUNTA_MS = 10_000; // depois de "farol", quanto tempo espera a pergunta
+const FOLGA_APOS_PAUSA_MS = 800; // descarta o "rabo" da própria fala do app ao retomar
+
+// ---- Módulo nativo -------------------------------------------------------
 
 type Ouvinte = { remove: () => void };
 type VoskNativo = {
@@ -16,20 +26,29 @@ type VoskNativo = {
   onResult: (cb: (resultado: unknown) => void) => Ouvinte;
   onError: (cb: (erro: unknown) => void) => Ouvinte;
 };
-type ClasseVosk = new () => VoskNativo;
 
-let Vosk: ClasseVosk | null = null;
+// Cria o objeto do Vosk. Depende do formato que o pacote exporta (classe ou instância pronta)
+let criarVosk: (() => VoskNativo) | null = null;
 if (Platform.OS !== "web") {
   try {
     const modulo = require("react-native-vosk");
-    Vosk = (modulo.default ?? modulo.Vosk ?? null) as ClasseVosk | null;
-  } catch {
-    Vosk = null;
+    const candidato = modulo?.default ?? modulo?.Vosk ?? modulo;
+    if (typeof candidato === "function") {
+      const Classe = candidato as new () => VoskNativo;
+      criarVosk = () => new Classe();
+    } else if (candidato && typeof candidato.loadModel === "function") {
+      criarVosk = () => candidato as VoskNativo;
+    } else {
+      console.log("VOSK: formato de exportação desconhecido. Chaves:", Object.keys(modulo ?? {}));
+    }
+  } catch (erro) {
+    console.log("VOSK: não foi possível carregar o módulo:", erro);
   }
 }
 
-export const escutaDisponivel = Vosk !== null;
+export const escutaDisponivel = criarVosk !== null;
 
+// ---- Eventos que o motor dispara ------------------------------------------
 export type EventosEscuta = {
   aoAtivar: () => void; // ouviu só "farol": a pergunta vem a seguir
   aoReceberPergunta: (pergunta: string) => void;
@@ -37,6 +56,7 @@ export type EventosEscuta = {
   aoErro: (mensagem: string) => void;
 };
 
+// O resultado costuma vir como texto, mas aceitamos também JSON com { text }
 function extrairTexto(bruto: unknown): string {
   if (typeof bruto === "string") {
     const t = bruto.trim();
@@ -125,10 +145,10 @@ export function criarMotorEscuta() {
     if (emInicio) return emInicio;
 
     emInicio = (async () => {
-      const Classe = Vosk;
-      if (!Classe) throw new Error("Reconhecimento de voz indisponível");
+      const fabrica = criarVosk;
+      if (!fabrica) throw new Error("Reconhecimento de voz indisponível");
       try {
-        const v = vosk ?? new Classe();
+        const v = vosk ?? fabrica();
         vosk = v;
         if (!modeloPronto) {
           await v.loadModel(MODELO); // a parte lenta: só acontece uma vez

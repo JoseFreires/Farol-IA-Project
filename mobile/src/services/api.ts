@@ -1,5 +1,5 @@
 import { Platform } from "react-native";
-
+import { File } from "expo-file-system";
 import { obterConfig } from "../settings/atual";
 import { normalizarUrl } from "../settings/tipos";
 
@@ -39,20 +39,14 @@ export async function descrever({
   if (!base) throw new Error("Endereço do servidor não configurado.");
 
   const formData = new FormData();
+
   if (Platform.OS === "web") {
     const respostaImagem = await fetch(imagemUri);
     if (!respostaImagem.ok) throw new Error("Não foi possível carregar a imagem.");
     formData.append("imagem", await respostaImagem.blob(), "captura.jpg");
   } else {
-    type ArquivoNativo = { uri: string; name: string; type: string };
-    type FormDataNativo = FormData & {
-      append(nome: string, valor: string | ArquivoNativo): void;
-    };
-    (formData as FormDataNativo).append("imagem", {
-      uri: imagemUri,
-      name: "captura.jpg",
-      type: "image/jpeg",
-    });
+    // File implementa a interface de Blob e é aceito pelo fetch do Expo
+    formData.append("imagem", new File(imagemUri) as unknown as Blob, "captura.jpg");
   }
   formData.append("modo", modo);
   formData.append("pergunta", pergunta ?? "");

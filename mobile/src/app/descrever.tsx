@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImageManipulator from "expo-image-manipulator";
 import { router, useLocalSearchParams } from "expo-router";
@@ -9,7 +9,7 @@ import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context"
 import { Botao } from "../components/Botao";
 import { FUNCOES } from "../data/funcoes";
 import { useEscuta } from "../escuta/EscutaContext";
-import { descrever, Mensagem, Modo } from "../services/api";
+import { descrever, Modo } from "../services/api";
 import { aguardarFimDaFala, criarNarrador, falar, parar } from "../services/fala";
 import { vibrar } from "../services/vibracao";
 import { obterConfig } from "../settings/atual";
@@ -22,18 +22,16 @@ export default function Descrever() {
   const insets = useSafeAreaInsets();
   const [permissao, pedirPermissao] = useCameraPermissions();
   const camera = useRef<CameraView>(null);
-  const imagem = useRef<string | null>(null);
-  const historico = useRef<Mensagem[]>([]);
 
   const [cameraPronta, setCameraPronta] = useState(false);
   const [ocupado, setOcupado] = useState(false);
   const [resposta, setResposta] = useState("");
 
   // Guarda a versão mais recente de "executar" para o listener de voz
- const executarRef = useRef<(pergunta?: string) => Promise<void>>(async () => {});
+  const executarRef = useRef<(pergunta?: string) => Promise<void>>(async () => {});
 
-   // Escuta global (palavra "Farol" ou botão Perguntar): recebe a pergunta já transcrita
-  const { aoReceberPergunta, pausar, retomar, perguntarAgora } = useEscuta();
+  // Escuta global (palavra "Farol"): cada pergunta falada dispara foto + envio, como o botão
+  const { aoReceberPergunta, pausar, retomar, ativa } = useEscuta();
   useEffect(
     () => aoReceberPergunta((pergunta) => executarRef.current(pergunta)),
     [aoReceberPergunta],
@@ -54,52 +52,36 @@ export default function Descrever() {
     setOcupado(true);
     setResposta("");
     parar();
-    pausar();
+    pausar(); // o microfone ignora a fala do app enquanto ele descreve
 
     try {
-      if (!pergunta) {
-        if (!cameraPronta) {
-          falar("A câmera ainda está iniciando. Tente de novo.");
-          return;
-        }
-        vibrar.confirmar();
-        const foto = await camera.current?.takePictureAsync({ quality: 0.8 });
-        if (!foto) throw new Error("Sem foto");
-        const img = await ImageManipulator.manipulateAsync(
-          foto.uri,
-          [{ resize: { width: LARGURA_FOTO[obterConfig().qualidadeFoto] } }],
-          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
-        );
-        imagem.current = img.uri;
-        historico.current = [];
-      }
-      if (!imagem.current) {
-        falar("Primeiro descreva uma imagem.");
+      // Tanto o botão quanto a voz ("Farol, ...") tiram uma foto nova do que a câmera vê agora
+      if (!cameraPronta) {
+        falar("A câmera ainda está iniciando. Tente de novo.");
         return;
       }
+      if (!pergunta) vibrar.confirmar(); // por voz, a vibração já foi dada ao ouvir "Farol"
+      const foto = await camera.current?.takePictureAsync({ quality: 0.8 });
+      if (!foto) throw new Error("Sem foto");
+      const img = await ImageManipulator.manipulateAsync(
+        foto.uri,
+        [{ resize: { width: LARGURA_FOTO[obterConfig().qualidadeFoto] } }],
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+      );
 
       falar("Analisando.");
       const narrador = criarNarrador();
-      let completo = "";
 
       await descrever({
-        imagemUri: imagem.current,
+        imagemUri: img.uri,
         modo,
-        pergunta,
-        historico: historico.current,
+        pergunta, // vazio = descrição geral; com texto = pergunta sobre esta foto
         onTexto: (p) => {
-          completo += p;
-          setResposta(completo);
+          setResposta((atual) => atual + p);
           narrador.adicionar(p);
         },
       });
       narrador.finalizar();
-
-      historico.current = [
-        ...historico.current,
-        ...(pergunta ? [{ role: "user" as const, texto: pergunta }] : []),
-        { role: "assistant" as const, texto: completo },
-      ];
     } catch (erro) {
       console.log("ERRO AO DESCREVER:", erro);
       vibrar.erro();
@@ -112,20 +94,10 @@ export default function Descrever() {
       );
     } finally {
       setOcupado(false);
-      aguardarFimDaFala().then(retomar);
+      aguardarFimDaFala().then(retomar); // só volta a escutar quando o app terminar de falar
     }
   }
   executarRef.current = executar;
-
- async function ouvirPergunta() {
-    if (ocupado) return;
-    if (!imagem.current) {
-      falar("Primeiro descreva uma imagem.");
-      return;
-    }
-    parar();
-    await perguntarAgora(); // liga o microfone se preciso; a pergunta chega pelo aoReceberPergunta
-  }
 
   // ===== 3. SÓ AGORA OS RETURNS ANTECIPADOS =====
   if (!permissao) return <View style={e.tela} />;
@@ -190,12 +162,11 @@ export default function Descrever() {
           accessibilityHint={funcao.instrucao}
         />
 
-        <Botao
-          titulo="Perguntar"
-          variante="secundario"
-          onPress={ouvirPergunta}
-          accessibilityLabel="Fazer uma pergunta sobre a imagem"
-        />
+        <Text style={e.dica}>
+          {ativa
+            ? 'Pergunte ao Farol o que está sendo visto. Diga "Farol" e faça sua pergunta.'
+            : 'Para perguntar por voz, ative o assistente no menu e diga "Farol".'}
+        </Text>
       </View>
     </View>
   );
@@ -242,4 +213,10 @@ const e = StyleSheet.create({
   },
   areaTexto: { maxHeight: 190 },
   resposta: { color: cores.textoPrincipal, fontSize: fonte.corpo, lineHeight: 26 },
+  dica: {
+    color: cores.textoSecundario,
+    fontSize: fonte.pequeno,
+    lineHeight: 21,
+    textAlign: "center",
+  },
 });
