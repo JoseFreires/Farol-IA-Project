@@ -10,64 +10,56 @@ import {
   type ReactNode,
 } from "react";
 import { AppState, type AppStateStatus } from "react-native";
+
+import { calar, dizer } from "../services/dialogo";
 import { escutaDisponivel, motorEscuta } from "../services/escuta";
-import { aguardarFimDaFala, falar } from "../services/fala";
+import { falar } from "../services/fala";
 import { vibrar } from "../services/vibracao";
 import { obterConfig } from "../settings/atual";
 import { useConfig } from "../settings/ConfiguracoesContext";
 
 export type EstadoEscuta = "desligada" | "iniciando" | "ouvindo" | "erro";
-type OuvintePergunta = (pergunta: string) => void;
+type OuvinteChamada = (pergunta?: string) => void;
 
 type Valor = {
   estado: EstadoEscuta;
   ativa: boolean; // preferência da pessoa: assistente ligado
   permissaoNegada: boolean;
   alternar: () => Promise<void>; // liga/desliga o assistente (pede o microfone se preciso)
-  pausar: () => void; // chame ao começar a falar, para o app não ouvir a si mesmo
-  retomar: () => void;
-  perguntarAgora: () => Promise<void>; // botão "Perguntar": a próxima frase é a pergunta
-  aoReceberPergunta: (cb: OuvintePergunta) => () => void; // devolve a função de cancelar
+  perguntarAgora: () => Promise<void>; // botão "Ditar": a próxima frase falada é a pergunta
+  aoChamar: (cb: OuvinteChamada) => () => void; // "Farol" ouvido; devolve a função de cancelar
 };
 
-
-const Contexto= createContext<Valor | null>(null);
+const Contexto = createContext<Valor | null>(null);
 
 const MSG_INDISPONIVEL = "O reconhecimento de voz não está disponível neste aparelho.";
 
 async function garantirPermissao(): Promise<boolean> {
-  let p = await getRecordingPermissionsAsync();
-  if (!p.granted && p.canAskAgain) {
+  let permissao = await getRecordingPermissionsAsync();
+  if (!permissao.granted && permissao.canAskAgain) {
     falar("O Farol vai usar o microfone para ouvir você. Permita no próximo aviso.");
-    p = await requestRecordingPermissionsAsync();
+    permissao = await requestRecordingPermissionsAsync();
   }
-  return p.granted;
+  return permissao.granted;
 }
-
-function falarSemOuvir(texto: string) {
-  motorEscuta.pausar();
-  falar(texto);
-  aguardarFimDaFala().then(() => motorEscuta.retomar());
-}
-
 
 export function EscutaProvider({ children }: { children: ReactNode }) {
   const { config, atualizar } = useConfig();
   const [estado, setEstado] = useState<EstadoEscuta>("desligada");
   const [permissaoNegada, setPermissaoNegada] = useState(false);
 
-  const assinantes = useRef(new Set<OuvintePergunta>());
-  const temporario = useRef(false);
-   const voltarAoRetomar = useRef(false);
+  const assinantes = useRef(new Set<OuvinteChamada>());
+  const temporario = useRef(false); // microfone ligado só para uma pergunta ditada
+  const voltarAoRetomar = useRef(false); // religar ao voltar do segundo plano
 
-     const iniciarMotor = useCallback(async () => {
+  const iniciarMotor = useCallback(async () => {
     if (!escutaDisponivel) {
       setEstado("erro");
       falar(MSG_INDISPONIVEL);
       return;
     }
     setEstado("iniciando");
-     try {
+    try {
       await motorEscuta.iniciar();
       setEstado("ouvindo");
     } catch (erro) {
@@ -78,11 +70,12 @@ export function EscutaProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-    const pararMotor = useCallback(async () => {
+  const pararMotor = useCallback(async () => {
     await motorEscuta.parar();
     setEstado("desligada");
   }, []);
 
+  // Liga os eventos do motor de escuta aos assinantes (menu, câmera...)
   useEffect(() => {
     const encerrarTemporario = () => {
       if (temporario.current) {
@@ -92,8 +85,7 @@ export function EscutaProvider({ children }: { children: ReactNode }) {
     };
 
     motorEscuta.definirEventos({
-      aoAtivar: () => vibrar.confirmar(), // ouviu "farol": pode falar
-      aoReceberPergunta: (pergunta) => {
+      aoChamar: (pergunta) => {
         vibrar.sucesso();
         assinantes.current.forEach((cb) => cb(pergunta));
         encerrarTemporario();
@@ -108,13 +100,14 @@ export function EscutaProvider({ children }: { children: ReactNode }) {
     };
   }, [pararMotor]);
 
+  // Segue a preferência "assistente ligado"
   useEffect(() => {
     let vivo = true;
     (async () => {
       if (config.escutaAtiva) {
-        const p = await getRecordingPermissionsAsync();
+        const permissao = await getRecordingPermissionsAsync();
         if (!vivo) return;
-        if (!p.granted) {
+        if (!permissao.granted) {
           atualizar({ escutaAtiva: false }); // permissão foi revogada nos ajustes do aparelho
           return;
         }
@@ -129,26 +122,25 @@ export function EscutaProvider({ children }: { children: ReactNode }) {
     };
   }, [config.escutaAtiva, atualizar, iniciarMotor, pararMotor]);
 
-
-  //permite a escuta apenas com o app aberto
-    useEffect(() => {
-    const assinatura = AppState.addEventListener("change", (s: AppStateStatus) => {
-      if (s === "background") {
+  // A escuta só funciona com o app aberto: desliga em segundo plano e religa ao voltar
+  useEffect(() => {
+    const assinatura = AppState.addEventListener("change", (situacao: AppStateStatus) => {
+      if (situacao === "background") {
         if (temporario.current) temporario.current = false;
         else if (motorEscuta.estaRodando()) voltarAoRetomar.current = true;
         if (motorEscuta.estaRodando()) pararMotor();
-      } else if (s === "active" && voltarAoRetomar.current) {
+      } else if (situacao === "active" && voltarAoRetomar.current) {
         voltarAoRetomar.current = false;
         iniciarMotor();
       }
     });
     return () => assinatura.remove();
-  }, [iniciarMotor, pararMotor]); 
-
+  }, [iniciarMotor, pararMotor]);
 
   const alternar = useCallback(async () => {
     if (obterConfig().escutaAtiva) {
       atualizar({ escutaAtiva: false });
+      calar();
       falar("Assistente de voz desligado.");
       return;
     }
@@ -166,10 +158,10 @@ export function EscutaProvider({ children }: { children: ReactNode }) {
       return;
     }
     atualizar({ escutaAtiva: true });
-    falarSemOuvir("Assistente de voz ligado. Diga Farol e faça sua pergunta.");
+    dizer("Assistente de voz ligado. Diga Farol para descrever o que está à sua frente.");
   }, [atualizar]);
 
-    const perguntarAgora = useCallback(async () => {
+  const perguntarAgora = useCallback(async () => {
     if (!escutaDisponivel) {
       falar(MSG_INDISPONIVEL);
       return;
@@ -193,11 +185,7 @@ export function EscutaProvider({ children }: { children: ReactNode }) {
     vibrar.confirmar(); // sinal de "pode falar"
   }, [iniciarMotor]);
 
-  const pausar = useCallback(() => motorEscuta.pausar(), []);
-  const retomar = useCallback(() => motorEscuta.retomar(), []);
-
-
-    const aoReceberPergunta = useCallback((cb: OuvintePergunta) => {
+  const aoChamar = useCallback((cb: OuvinteChamada) => {
     assinantes.current.add(cb);
     return () => {
       assinantes.current.delete(cb);
@@ -210,12 +198,10 @@ export function EscutaProvider({ children }: { children: ReactNode }) {
       ativa: config.escutaAtiva,
       permissaoNegada,
       alternar,
-      pausar,
-      retomar,
       perguntarAgora,
-      aoReceberPergunta,
+      aoChamar,
     }),
-    [estado, config.escutaAtiva, permissaoNegada, alternar, pausar, retomar, perguntarAgora, aoReceberPergunta],
+    [estado, config.escutaAtiva, permissaoNegada, alternar, perguntarAgora, aoChamar],
   );
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;

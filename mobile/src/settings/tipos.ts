@@ -82,7 +82,7 @@ export function normalizar(bruto: unknown): Configuracoes {
         : PADRAO.capturaAutomatica,
     vibracao: typeof b.vibracao === "boolean" ? b.vibracao : PADRAO.vibracao,
     servidorUrl: typeof b.servidorUrl === "string" ? b.servidorUrl : PADRAO.servidorUrl,
-     escutaAtiva: typeof b.escutaAtiva === "boolean" ? b.escutaAtiva : PADRAO.escutaAtiva,
+    escutaAtiva: typeof b.escutaAtiva === "boolean" ? b.escutaAtiva : PADRAO.escutaAtiva,
   };
 }
 

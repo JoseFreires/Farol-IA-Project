@@ -34,12 +34,14 @@ export function useEstabilidadeCamera({
   const inicioEstavel = useRef<number | null>(null);
   const jaDisparou = useRef(false);
   const teveMovimentoPrevio = useRef(false);
+  const avisouEstabilizando = useRef(false); // evita repetir "mantenha parada" a cada tremida
 
   function reiniciar() {
     jaDisparou.current = false;
     inicioEstavel.current = null;
     ultimoPonto.current = null;
     teveMovimentoPrevio.current = false;
+    avisouEstabilizando.current = false;
     setEstado("ocioso");
   }
 
@@ -84,7 +86,10 @@ export function useEstabilidadeCamera({
           if (!inicioEstavel.current) {
             inicioEstavel.current = agora;
             setEstado("estabilizando");
-            onEstabilizandoRef.current?.();
+            if (!avisouEstabilizando.current) {
+              avisouEstabilizando.current = true;
+              onEstabilizandoRef.current?.();
+            }
           } else {
             const duracaoEstavel = agora - inicioEstavel.current;
             if (duracaoEstavel >= tempoEstabilidadeMs && !jaDisparou.current) {

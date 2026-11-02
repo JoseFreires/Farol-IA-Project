@@ -2,7 +2,6 @@ import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 
 import { EscutaProvider } from "../escuta/EscutaContext";
-import { cores } from "../theme/tema";
 import { ConfiguracoesProvider, useConfig } from "../settings/ConfiguracoesContext";
 
 function AppStack() {
@@ -26,7 +25,7 @@ export default function Layout() {
   return (
     <ConfiguracoesProvider>
       <EscutaProvider>
-      <AppStack />
+        <AppStack />
       </EscutaProvider>
     </ConfiguracoesProvider>
   );

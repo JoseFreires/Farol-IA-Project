@@ -8,11 +8,11 @@ import { Platform } from "react-native";
 // Pasta do modelo de português dentro de assets/ (o nome PRECISA começar com "model-")
 export const MODELO = "model-small-pt-0.3";
 
-// "farol" sozinha = aguarda a pergunta no resultado seguinte
-// "farol, o que tem na frente?" = a pergunta já vem na mesma frase
+// "farol" sozinha = chama o app sem pergunta (descrição geral)
+// "farol, o que tem na frente?" = chama o app já com a pergunta, na mesma frase
 const ATIVACAO = /\bfarol\b[\s,.!?:;-]*/;
 
-const TEMPO_PARA_PERGUNTA_MS = 10_000; // depois de "farol", quanto tempo espera a pergunta
+const TEMPO_PARA_PERGUNTA_MS = 10_000; // ao pedir "ditar pergunta", quanto tempo espera a fala
 const FOLGA_APOS_PAUSA_MS = 800; // descarta o "rabo" da própria fala do app ao retomar
 
 // ---- Módulo nativo -------------------------------------------------------
@@ -50,9 +50,9 @@ export const escutaDisponivel = criarVosk !== null;
 
 // ---- Eventos que o motor dispara ------------------------------------------
 export type EventosEscuta = {
-  aoAtivar: () => void; // ouviu só "farol": a pergunta vem a seguir
-  aoReceberPergunta: (pergunta: string) => void;
-  aoExpirar: () => void; // ouviu "farol", mas ninguém perguntou nada
+  // Ouviu "farol" (com ou sem pergunta na mesma frase) ou a pergunta ditada pelo botão
+  aoChamar: (pergunta?: string) => void;
+  aoExpirar: () => void; // pediu para ditar a pergunta, mas ninguém falou
   aoErro: (mensagem: string) => void;
 };
 
@@ -117,9 +117,10 @@ export function criarMotorEscuta() {
     const texto = extrairTexto(bruto).toLowerCase();
     if (texto.length < 3) return; // ruído
 
+    // Pergunta ditada pelo botão: a frase inteira é a pergunta
     if (aguardando) {
       cancelarEspera();
-      eventos?.aoReceberPergunta(texto);
+      eventos?.aoChamar(texto);
       return;
     }
 
@@ -127,12 +128,7 @@ export function criarMotorEscuta() {
     if (!achou) return;
 
     const resto = texto.slice((achou.index ?? 0) + achou[0].length).trim();
-    if (resto) {
-      eventos?.aoReceberPergunta(resto);
-    } else {
-      esperarPergunta();
-      eventos?.aoAtivar();
-    }
+    eventos?.aoChamar(resto || undefined);
   }
 
   function removerOuvintes() {
