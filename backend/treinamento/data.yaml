@@ -1,0 +1,8 @@
+path: C:\WorkSpace\Farol 2,0\treinamento
+train: images/train
+val: images/val
+
+nc: 1
+
+names: 
+  0: "degrau"

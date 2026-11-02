@@ -1,4 +1,0 @@
-[
-  { "arquivo": "fotos/leite.jpg", "modo": "produto", "deve_conter": ["leite", "2027"] },
-  { "arquivo": "fotos/conta_luz.jpg", "modo": "documento", "deve_conter": ["187,40"] }
-]
