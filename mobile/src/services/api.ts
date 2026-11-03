@@ -1,5 +1,5 @@
-import { fetch as streamFetch } from "expo/fetch"; // fetch com suporte a streaming
-
+import { File as ExpoFile } from "expo-file-system";
+import { Platform } from "react-native";
 import { obterConfig } from "../settings/atual";
 import { normalizarUrl } from "../settings/tipos";
 
@@ -12,64 +12,75 @@ export function urlServidor(): string {
   return normalizarUrl(obterConfig().servidorUrl) || URL_PADRAO;
 }
 
-const cabecalhos = {
-  "Content-Type": "application/json",
-  Authorization: `Bearer ${TOKEN}`,
+const autorizacao = { Authorization: `Bearer ${TOKEN}` };
+
+// Identificador único de sessão usado em todas as chamadas ao servidor
+export const SESSION_ID = "mobile-session";
+
+export type ResultadoProcessamento = {
+  sessionId: string;
+  status: string;
+  deveFalar: boolean;
+  mensagem: string | null;
+  prioridade: string;
+  idioma?: string;
+  fallback?: boolean;
+  motivo?: string | null;
 };
 
-export type Modo = "ambiente" | "texto" | "produto" | "documento";
-export type Mensagem = { role: "user" | "assistant"; texto: string };
-
-type Params = {
-  imagemBase64: string;
-  modo: Modo;
+type ProcessarParams = {
+  imagemUri: string; // uri local da foto (file://...) ou blob/data uri na web
+  sessionId?: string;
   pergunta?: string;
-  historico?: Mensagem[];
-  onTexto: (pedaco: string) => void;
+  // true = a pessoa pediu agora (botão ou voz): o servidor descreve de novo,
+  // sem os filtros de "nada mudou" feitos para monitoramento contínuo
+  forcar?: boolean;
+  timeoutMs?: number;
 };
 
-export async function descrever({
-  imagemBase64,
-  modo,
+export async function processar({
+  imagemUri,
+  sessionId = SESSION_ID,
   pergunta,
-  historico = [],
-  onTexto,
-}: Params): Promise<void> {
+  forcar = false,
+  timeoutMs = 90_000, // o modelo local pode demorar
+}: ProcessarParams): Promise<ResultadoProcessamento> {
   const base = urlServidor();
   if (!base) throw new Error("Endereço do servidor não configurado.");
+  if (!imagemUri) throw new Error("Imagem não capturada (endereço da foto vazio).");
 
-  const resp = await streamFetch(`${base}/descrever`, {
-    method: "POST",
-    headers: cabecalhos,
-    body: JSON.stringify({
-      imagem_base64: imagemBase64,
-      modo,
-      pergunta,
-      historico,
-      detalhe: obterConfig().detalhe,
-    }),
-  });
-  if (!resp.ok || !resp.body) throw new Error(`Erro ${resp.status}`);
+  const corpo = new FormData();
+  if (Platform.OS === "web") {
+    const respostaImagem = await fetch(imagemUri);
+    if (!respostaImagem.ok) throw new Error("Não foi possível carregar a imagem.");
+    corpo.append("imagem", await respostaImagem.blob(), "captura.jpg");
+  } else {
+    // O fetch do Expo só aceita Blob/File no multipart (o formato { uri, name, type } não funciona)
+    corpo.append("imagem", new ExpoFile(imagemUri));
+  }
+  corpo.append("sessionId", sessionId);
+  if (pergunta) corpo.append("pergunta", pergunta);
+  if (forcar) corpo.append("forcar", "true");
 
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    const eventos = buffer.split("\n\n");
-    buffer = eventos.pop() ?? "";
-
-    for (const ev of eventos) {
-      const dado = ev.replace(/^data: /, "").trim();
-      if (!dado || dado === "[FIM]") continue;
-      const json = JSON.parse(dado);
-      if (json.erro) throw new Error(json.erro);
-      if (json.texto) onTexto(json.texto);
+  const controle = new AbortController();
+  const timer = setTimeout(() => controle.abort(), timeoutMs);
+  try {
+    const resp = await fetch(`${base}/processar`, {
+      method: "POST",
+      headers: autorizacao, // não defina Content-Type: o boundary do multipart é automático
+      body: corpo,
+      signal: controle.signal,
+    });
+    if (!resp.ok) {
+      const detalhe = await resp.text().catch(() => "");
+      throw new Error(`Erro ${resp.status}${detalhe ? `: ${detalhe}` : ""}`);
     }
+    return await resp.json();
+  } catch (erro) {
+    if (controle.signal.aborted) throw new Error("O servidor demorou demais para responder.");
+    throw erro;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
@@ -88,21 +99,4 @@ export async function testarConexao(url?: string, tempoMs = 4000): Promise<boole
   } finally {
     clearTimeout(timer);
   }
-}
-
-export type ResultadoBoleto =
-  | { valido: true; valor: number; vencimento: string | null; banco: string }
-  | { valido: false; motivo: string };
-
-export async function validarBoleto(codigo: string): Promise<ResultadoBoleto> {
-  const base = urlServidor();
-  if (!base) throw new Error("Endereço do servidor não configurado.");
-
-  const resp = await fetch(`${base}/boleto/validar`, {
-    method: "POST",
-    headers: cabecalhos,
-    body: JSON.stringify({ codigo }),
-  });
-  if (!resp.ok) throw new Error(`Erro ${resp.status}`);
-  return resp.json();
 }

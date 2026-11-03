@@ -17,7 +17,8 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.farol"
     },
     "web": {
       "output": "static",
@@ -32,7 +33,17 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
-      ]
+      ],
+      [
+        "react-native-vosk",
+        {
+          "models": [
+            "assets/model-small-pt-0.3"
+          ],
+          "iOSMicrophonePermission": "O Farol precisa acessar o microfone para reconhecer sua fala."
+        }
+      ],
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true,
