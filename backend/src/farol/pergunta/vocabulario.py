@@ -235,6 +235,7 @@ def achar_termo(pergunta_norm: str):
             padrao = r"(?<![a-záéíóúç])" + re.escape(variante) + r"(?![a-záéíóúç])"
             if re.search(padrao, pergunta_norm):
                 termo_canonico = {
+                    "cadeiras": "cadeira",
                     "escadas": "escada",
                     "degraus": "degrau",
                 }.get(termo_pt, termo_pt)

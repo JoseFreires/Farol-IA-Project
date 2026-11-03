@@ -30,6 +30,14 @@ def test_processar_caminho1_ignora_palavras_ambiguas():
     assert "à esquerda" in resp.lower()
 
 
+def test_contagem_de_cadeiras_pluraliza_termo_canonico():
+    objs = [Obj("chair", "à esquerda", "perto"), Obj("chair", "à direita", "perto")]
+
+    resp = processar_caminho1("quantas cadeiras tem?", objs)
+
+    assert resp == "Há por volta de 2 cadeiras."
+
+
 def test_roteador_classes_zero_false_positive():
     objs = [Obj("chair", "à esquerda", "perto")]
     dec = rotear_pergunta("onde está a mochila", objs, SessaoStub())
@@ -39,8 +47,11 @@ def test_roteador_classes_zero_false_positive():
 
 def test_roteador_pergunta_antes_da_descricao():
     objs = [Obj("chair", "à esquerda", "perto")]
-    dec = rotear_pergunta("onde está a cadeira", objs, SessaoStub())
-    assert dec.caminho in (1, 2)
+    sessao = SessaoStub()
+    sessao.descricao_inicial_feita = False
+    dec = rotear_pergunta("onde está a cadeira", objs, sessao)
+    assert dec.caminho == 1
+    assert dec.resposta_direta == "Aguarde a primeira descrição do ambiente."
 
 
 def test_perguntas_de_escada_vao_para_caminho_deterministico():
@@ -56,12 +67,13 @@ def test_perguntas_de_escada_vao_para_caminho_deterministico():
     assert "uma escada" in quantas.resposta_direta.lower()
 
 
-def test_contagem_de_degraus_e_tamanho_de_escada_usam_gemma():
+def test_contagem_de_degraus_nao_e_inferida_mas_tamanho_usa_gemma():
     objetos = [Obj("degrau", "à direita", "perto")]
 
     quantidade = rotear_pergunta("quantos degraus tem?", objetos, SessaoStub())
     tamanho = rotear_pergunta("qual o tamanho da escada?", objetos, SessaoStub())
 
-    assert quantidade.caminho == 2
+    assert quantidade.caminho == 1
+    assert "não consigo" in quantidade.resposta_direta.lower()
     assert quantidade.classe_alvo_en == "degrau"
     assert tamanho.caminho == 2

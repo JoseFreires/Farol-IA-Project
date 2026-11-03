@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from src.farol.pergunta.fluxo_simples import classificar_intencao, normalizar, processar_caminho1
-from src.farol.pergunta.vocabulario import VOCAB, achar_termo
+from src.farol.pergunta.vocabulario import achar_termo
 
 
 @dataclass
@@ -23,8 +23,9 @@ def rotear_pergunta(pergunta: str, objetos_tratados: list, estado_sessao) -> Dec
 
     if intencao == "CONTAR" and termo_pt == "degrau":
         return DecisaoRoteamento(
-            caminho=2,
-            intencao="ATRIBUTO",
+            caminho=1,
+            resposta_direta="Não consigo informar a quantidade de degraus.",
+            intencao=intencao,
             classe_alvo_en=classe_en,
             termo_pt=termo_pt,
         )

@@ -56,3 +56,14 @@ async def frame_upload(request: Request):
             deps.sessao.atualizar(ultimo_frame=frame, ultimo_frame_id=frame_id)
 
     return {"status": "ok"}
+
+
+@router.get("/saida")
+async def proxima_saida(request: Request):
+    deps = request.app.state.deps
+    if deps.fila_saida is None:
+        raise HTTPException(status_code=503, detail="fila de saída indisponível")
+    mensagem = deps.fila_saida.proxima()
+    if mensagem is None:
+        return {"status": "vazia"}
+    return mensagem.to_dict()
