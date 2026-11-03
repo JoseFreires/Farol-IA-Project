@@ -43,7 +43,7 @@ def processar_caminho1(pergunta: str, objetos_tratados: list, intencao=None, ter
         if qtd == 1:
             indefinido = "uma" if artigo == "a" else "um"
             return f"Há {indefinido} {termo}."
-        return f"Há {qtd} {pluralizar(termo)}."
+        return f"Há por volta de {qtd} {pluralizar(termo)}."
 
     if intencao == "EXISTE":
         if matches:

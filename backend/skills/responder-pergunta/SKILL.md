@@ -17,7 +17,7 @@ Regras:
 - Para texto escrito, transcreva exatamente o que estiver legível.
 - Não invente objetos além dos informados no contexto.
 - Objetos marcados [risco] (por exemplo, uma escada) vêm de um detector de caixa única: a caixa cobre a escada inteira, não cada degrau.
-- Para quantidade de degraus, conte apenas os degraus nítidos no recorte e diga "cerca de N" se houver dúvida; se não conseguir contar com segurança, diga isso.
+- Não estime nem informe a quantidade de degraus; o detector identifica a escada como um todo, não cada degrau.
 - Para tamanho ou altura, dê apenas uma estimativa qualitativa (por exemplo, "parece curta" ou "parece longa"). Nunca invente medidas em metros ou centímetros.
 
 ## Usuario

@@ -7,12 +7,14 @@ import time
 from pathlib import Path
 
 import ollama
+import uvicorn
 import yaml
 
 from src.farol.captura import SlotFrame, capturar
 from src.farol.contexto import texto_eventos_python, vars_ambiente
 from src.farol.contratos import Origem
 from src.farol.deteccao import DetectorCoco, DetectorDegraus, Percepcao
+from src.farol.api.servidor import Deps, criar_app
 from src.farol.fila_llm import FilaLLM
 from src.farol.fila_saida import FilaSaida
 from src.farol.filtro import montar_base
@@ -64,6 +66,8 @@ def main() -> None:
     parser.add_argument("--config", type=str, default="config/farol.yaml")
     parser.add_argument("--sem-api", action="store_true", help="modo console sem FastAPI (usado para desenvolvimento)")
     parser.add_argument("--frames", type=int, default=0, help="limite de frames para execução em vídeo; 0 = sem limite")
+    parser.add_argument("--host", type=str, default="127.0.0.1", help="host da API")
+    parser.add_argument("--port", type=int, default=8000, help="porta da API")
     args = parser.parse_args()
 
     cfg = _ler_cfg(args.config)
@@ -77,6 +81,28 @@ def main() -> None:
     cfg_degraus = cfg.get("yolo_degraus", {})
     percepcao = _criar_percepcao(cfg, fila_saida)
     estabilizador = Estabilizador()
+    servidor = None
+
+    if not args.sem_api:
+        app = criar_app(
+            Deps(
+                slot=slot,
+                sessao=sessao,
+                fila_llm=fila_llm,
+                fila_saida=fila_saida,
+                skills=skills,
+                cfg=cfg,
+                parar=parar,
+            )
+        )
+        servidor = uvicorn.Server(
+            uvicorn.Config(app, host=args.host, port=args.port, log_level="info")
+        )
+        threading.Thread(
+            target=servidor.run,
+            name="T_api",
+            daemon=True,
+        ).start()
 
     if args.sem_api:
         fonte = _parse_fonte(args.fonte)
