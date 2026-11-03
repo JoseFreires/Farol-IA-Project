@@ -90,7 +90,11 @@ def msg_resposta(texto: str, origem: Origem | str, frame_id: int | None, session
     )
 
 
-def msg_erro(exc: Exception, session_id: str = "session-1") -> MensagemSaida:
+def msg_erro(
+    exc: Exception,
+    session_id: str = "session-1",
+    frame_id: int | None = None,
+) -> MensagemSaida:
     texto = "Não consegui acessar o modelo de descrição."
     if exc is not None and str(exc):
         texto = str(exc)
@@ -100,7 +104,7 @@ def msg_erro(exc: Exception, session_id: str = "session-1") -> MensagemSaida:
         prioridade=Prioridade.CRITICA,
         motivo=Motivo.ERRO,
         origem=Origem.ERRO,
-        frame_id=None,
+        frame_id=frame_id,
         expira_ms=5000,
         deve_falar=True,
     )

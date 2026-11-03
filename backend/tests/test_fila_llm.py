@@ -41,10 +41,43 @@ def test_fila_llm_prioridade_cancelamento_valida_ocupada():
 def test_fila_llm_descarta_validacao_false():
     skill = {"name": "responder-pergunta", "model": "qwen2.5vl:3b", "options": {}, "sistema": "Sistema", "usuario": {"": "{{pergunta}}"}}
     fila = FilaLLM(chat=ChatFake("resposta"))
-    tarefa = fila.enfileirar(skill, {"pergunta": "qual?"}, prioridade=1, valida=lambda: False)
-    time.sleep(0.1)
-    assert fila.ocupada_com(1) is False
-    fila.parar()
+    finalizada = threading.Event()
+    try:
+        fila.enfileirar(
+            skill,
+            {"pergunta": "qual?"},
+            prioridade=1,
+            valida=lambda: False,
+            ao_finalizar=finalizada.set,
+        )
+        assert finalizada.wait(timeout=1)
+        assert fila.ocupada_com(1) is False
+    finally:
+        fila.parar()
+
+
+def test_fila_llm_chama_erro_uma_vez_e_finaliza_tarefa():
+    class ChatErro:
+        def __call__(self, **kwargs):
+            raise RuntimeError("erro de modelo")
+
+    skill = {"name": "responder-pergunta", "model": "qwen2.5vl:3b", "options": {}, "sistema": "Sistema", "usuario": {"": "{{pergunta}}"}}
+    erros = []
+    finalizada = threading.Event()
+    fila = FilaLLM(chat=ChatErro())
+    try:
+        fila.enfileirar(
+            skill,
+            {"pergunta": "qual?"},
+            prioridade=1,
+            ao_erro=erros.append,
+            ao_finalizar=finalizada.set,
+        )
+        assert finalizada.wait(timeout=1)
+        assert len(erros) == 1
+        assert str(erros[0]) == "erro de modelo"
+    finally:
+        fila.parar()
 
 
 def test_carregar_skills_quando_chamado_apos_fila():

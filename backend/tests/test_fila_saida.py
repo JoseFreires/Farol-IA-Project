@@ -1,3 +1,4 @@
+import threading
 import time
 
 from src.farol.contratos import MensagemSaida, Motivo, Origem, Prioridade
@@ -46,3 +47,21 @@ def test_fila_saida_interrompe_limpa_informativas():
     crit = make_msg("c", Prioridade.CRITICA, expira_ms=5000)
     fila.publicar(crit, interrompe=True)
     assert fila.proxima().prioridade == Prioridade.CRITICA
+
+
+def test_fila_saida_espera_mensagem_de_frame_com_tarefa_llm_pendente():
+    fila = FilaSaida()
+    fila.registrar_frame(1)
+    finalizar_tarefa = fila.iniciar_tarefa_frame(1)
+    fila.finalizar_frame(1)
+
+    def concluir_llm():
+        fila.publicar(make_msg("descrição", Prioridade.INFORMATIVA))
+        finalizar_tarefa()
+
+    threading.Timer(0.02, concluir_llm).start()
+
+    mensagens = fila.aguardar_frame(1, timeout=1)
+
+    assert mensagens is not None
+    assert [mensagem.mensagem for mensagem in mensagens] == ["descrição"]

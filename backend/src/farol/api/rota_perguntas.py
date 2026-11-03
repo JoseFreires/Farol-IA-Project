@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+from concurrent.futures import Future
 import logging
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from src.farol.contratos import Origem
 from src.farol.contexto import vars_pergunta
 from src.farol.filtro import jpeg, recortar
-from src.farol.mensagens import msg_erro, msg_resposta
 from src.farol.pergunta.roteador import rotear_pergunta
 
 
@@ -34,9 +34,7 @@ async def pergunta(request: Request, payload: PerguntaPayload):
     estado = getattr(sessao, "estado", None) if sessao is not None else None
     frame = getattr(estado, "ultimo_frame", None) if estado is not None else None
     if frame is None:
-        if deps.fila_saida is not None:
-            deps.fila_saida.publicar(msg_erro(RuntimeError("Ainda não recebi imagem da câmera.")), interrompe=True)
-        return {"status": "recebida"}
+        raise HTTPException(status_code=409, detail="Ainda não recebi imagem da câmera.")
 
     objetos = list(getattr(estado, "ultimo_json", ()) or ())
     decisao = rotear_pergunta(texto, objetos, estado)
@@ -46,19 +44,12 @@ async def pergunta(request: Request, payload: PerguntaPayload):
         decisao = decisao.__class__(caminho=2, intencao=decisao.intencao, classe_alvo_en=decisao.classe_alvo_en, termo_pt=decisao.termo_pt)
 
     if decisao.caminho == 1 and decisao.resposta_direta:
-        if deps.fila_saida is not None:
-            deps.fila_saida.publicar(
-                msg_resposta(decisao.resposta_direta, Origem.SOMENTE_YOLO, frame_id),
-                interrompe=False,
-            )
         if sessao is not None:
             sessao.atualizar(ultima_pergunta=texto)
-        return {"status": "recebida"}
+        return {"frameId": frame_id, "texto": decisao.resposta_direta}
 
     if deps.fila_llm is None or deps.skills is None or "responder-pergunta" not in deps.skills:
-        if deps.fila_saida is not None:
-            deps.fila_saida.publicar(msg_erro(RuntimeError("Modelo Gemma não configurado.")), interrompe=True)
-        return {"status": "recebida"}
+        raise HTTPException(status_code=503, detail="Modelo Gemma não configurado.")
 
     alvo = None
     for obj in objetos:
@@ -83,23 +74,37 @@ async def pergunta(request: Request, payload: PerguntaPayload):
         alertados=getattr(estado, "riscos_alertados", set()),
     )
 
+    resultado: Future[str] = Future()
+
     def ao_concluir(resposta: str) -> None:
-        if deps.fila_saida is not None:
-            deps.fila_saida.publicar(msg_resposta(resposta, Origem.VLM, frame_id), interrompe=False)
+        if not resultado.done():
+            resultado.set_result(resposta)
 
     def ao_erro(exc: Exception) -> None:
-        if deps.fila_saida is not None:
-            deps.fila_saida.publicar(msg_erro(exc), interrompe=True)
+        if not resultado.done():
+            resultado.set_exception(exc)
 
     if sessao is not None:
         sessao.atualizar(ultima_pergunta=texto)
 
-    deps.fila_llm.enfileirar(
-        deps.skills["responder-pergunta"],
-        variaveis,
-        prioridade=1,
-        imagem=imagem,
-        ao_concluir=ao_concluir,
-        ao_erro=ao_erro,
-    )
-    return {"status": "recebida"}
+    try:
+        deps.fila_llm.enfileirar(
+            deps.skills["responder-pergunta"],
+            variaveis,
+            prioridade=1,
+            imagem=imagem,
+            ao_concluir=ao_concluir,
+            ao_erro=ao_erro,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    timeout = float(deps.cfg.get("api", {}).get("timeout_pergunta_s", 60))
+    try:
+        resposta = await asyncio.wait_for(asyncio.wrap_future(resultado), timeout)
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=504, detail="tempo limite aguardando resposta do modelo"
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return {"frameId": frame_id, "texto": resposta}

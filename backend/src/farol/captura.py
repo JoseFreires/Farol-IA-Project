@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Any
+from collections import deque
+from typing import Any, Callable
 
 import cv2
 import numpy as np
@@ -13,30 +14,63 @@ class SlotFrame:
         self._lock = threading.Lock()
         self._dado: tuple[int, Any] | None = None
         self._contador = 0
+        self._requisicoes: deque[tuple[int, Any]] = deque()
 
-    def publicar(self, frame: Any) -> int:
+    def publicar(
+        self,
+        frame: Any,
+        *,
+        requisicao: bool = False,
+        ao_registrar: Callable[[int], None] | None = None,
+    ) -> int:
         with self._lock:
             self._contador += 1
-            self._dado = (self._contador, frame)
-            return self._contador
+            frame_id = self._contador
+            if ao_registrar is not None:
+                ao_registrar(frame_id)
+            self._dado = (frame_id, frame)
+            if requisicao:
+                self._requisicoes.append((frame_id, frame))
+            return frame_id
 
     def ultimo(self) -> tuple[int, Any] | None:
         with self._lock:
             return self._dado
 
+    def proxima_requisicao(self) -> tuple[int, Any] | None:
+        with self._lock:
+            return self._requisicoes.popleft() if self._requisicoes else None
 
-def ingerir_frame(slot: SlotFrame, dados: bytes, max_bytes: int = 2_000_000) -> bool:
+    def cancelar_requisicao(self, frame_id: int) -> bool:
+        with self._lock:
+            for requisicao in self._requisicoes:
+                if requisicao[0] == frame_id:
+                    self._requisicoes.remove(requisicao)
+                    return True
+            return False
+
+
+def decodificar_frame(
+    dados: bytes, max_bytes: int = 2_000_000
+) -> np.ndarray | None:
     if len(dados) == 0 or len(dados) > max_bytes:
-        return False
+        return None
     try:
         arr = np.frombuffer(dados, dtype=np.uint8)
         frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
         if frame is None or frame.size == 0:
-            return False
-        slot.publicar(frame)
-        return True
+            return None
+        return frame
     except Exception:
+        return None
+
+
+def ingerir_frame(slot: SlotFrame, dados: bytes, max_bytes: int = 2_000_000) -> bool:
+    frame = decodificar_frame(dados, max_bytes)
+    if frame is None:
         return False
+    slot.publicar(frame)
+    return True
 
 
 def capturar(fonte, slot: SlotFrame, parar: threading.Event, loop_video: bool = True) -> None:

@@ -114,15 +114,18 @@ def main() -> None:
     contador_frames = 0
     ultimo_frame_id = None
     while not parar.is_set() and (args.frames == 0 or contador_frames < args.frames):
-        ultimo = slot.ultimo()
-        if ultimo is None:
-            time.sleep(0.05)
-            continue
-
-        frame_id, frame = ultimo
-        if frame_id == ultimo_frame_id:
-            time.sleep(0.05)
-            continue
+        requisicao = slot.proxima_requisicao()
+        if requisicao is not None:
+            frame_id, frame = requisicao
+        else:
+            ultimo = slot.ultimo()
+            if ultimo is None:
+                time.sleep(0.05)
+                continue
+            frame_id, frame = ultimo
+            if frame_id == ultimo_frame_id:
+                time.sleep(0.05)
+                continue
         ultimo_frame_id = frame_id
         contador_frames += 1
 
@@ -199,13 +202,19 @@ def main() -> None:
                     fila_saida.publicar(msg_ambiente(texto, None, frame_id), interrompe=False)
 
                 def ao_erro_inicial(
-                    exc: Exception, revisao: int = revisao
+                    exc: Exception,
+                    frame_id: int = frame_id,
+                    revisao: int = revisao,
                 ) -> None:
                     if sessao.estado.revisao_contexto != revisao:
                         return
                     sessao.atualizar(descricao_em_andamento=False)
                     print(f"[Erro] {exc}")
+                    fila_saida.publicar(
+                        msg_erro(exc, frame_id=frame_id), interrompe=True
+                    )
 
+                concluir_tarefa = fila_saida.iniciar_tarefa_frame(frame_id)
                 try:
                     fila_llm.enfileirar(
                         skills["descrever-ambiente"],
@@ -214,10 +223,14 @@ def main() -> None:
                         modo="",
                         ao_concluir=ao_concluir,
                         ao_erro=ao_erro_inicial,
+                        ao_finalizar=concluir_tarefa,
                     )
                 except Exception as exc:
+                    concluir_tarefa()
                     sessao.atualizar(descricao_em_andamento=False)
-                    fila_saida.publicar(msg_erro(exc), interrompe=True)
+                    fila_saida.publicar(
+                        msg_erro(exc, frame_id=frame_id), interrompe=True
+                    )
 
             if sessao.estado.descricao_inicial_feita:
                 cfg_estabilizada = {
@@ -257,6 +270,7 @@ def main() -> None:
 
                         def ao_erro_mudanca(
                             exc: Exception,
+                            frame_id: int = frame_id,
                             revisao: int = sessao.estado.revisao_contexto,
                         ) -> None:
                             if sessao.estado.revisao_contexto != revisao:
@@ -266,7 +280,14 @@ def main() -> None:
                                 descricao_em_andamento=False,
                             )
                             print(f"[Erro] {exc}")
+                            fila_saida.publicar(
+                                msg_erro(exc, frame_id=frame_id),
+                                interrompe=True,
+                            )
 
+                        concluir_tarefa = fila_saida.iniciar_tarefa_frame(
+                            frame_id
+                        )
                         try:
                             if not fila_llm.ocupada_com(2):
                                 agora = time.time()
@@ -282,19 +303,25 @@ def main() -> None:
                                     modo="atualizacao",
                                     ao_concluir=ao_concluir_mudanca,
                                     ao_erro=ao_erro_mudanca,
+                                    ao_finalizar=concluir_tarefa,
                                 )
-                            elif decisao.estado_mudanca is not None:
-                                decisao.estado_mudanca.eventos_pendentes = [
-                                    *decisao.eventos,
-                                    *decisao.estado_mudanca.eventos_pendentes,
-                                ]
-                                decisao.estado_mudanca.pendente_drastica = True
+                            else:
+                                if decisao.estado_mudanca is not None:
+                                    decisao.estado_mudanca.eventos_pendentes = [
+                                        *decisao.eventos,
+                                        *decisao.estado_mudanca.eventos_pendentes,
+                                    ]
+                                    decisao.estado_mudanca.pendente_drastica = True
+                                concluir_tarefa()
                         except Exception as exc:
+                            concluir_tarefa()
                             sessao.atualizar(
                                 contexto_invalido=True,
                                 descricao_em_andamento=False,
                             )
-                            fila_saida.publicar(msg_erro(exc), interrompe=True)
+                            fila_saida.publicar(
+                                msg_erro(exc, frame_id=frame_id), interrompe=True
+                            )
                     else:
                         texto = texto_eventos_python(
                             decisao.eventos,
@@ -313,7 +340,11 @@ def main() -> None:
             sessao.atualizar(ultimo_frame_id=frame_id, ultimo_json=tratados, ultimo_frame=frame)
         except Exception as exc:
             print(f"[Erro] {exc}")
-            fila_saida.publicar(msg_erro(exc), interrompe=True)
+            fila_saida.publicar(
+                msg_erro(exc, frame_id=frame_id), interrompe=True
+            )
+        finally:
+            fila_saida.finalizar_frame(frame_id)
         time.sleep(0.05)
 
     if args.sem_api and not args.frames:
