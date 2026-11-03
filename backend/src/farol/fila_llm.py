@@ -23,6 +23,7 @@ class Tarefa:
     valida: Callable[[], bool] | None = None
     ao_concluir: Callable[[str], Any] | None = None
     ao_erro: Callable[[Exception], Any] | None = None
+    ao_finalizar: Callable[[], Any] | None = None
     cancelar: threading.Event | None = None
     seq: int = field(default=0)
     criado_em: float = field(default_factory=time.time)
@@ -53,6 +54,7 @@ class FilaLLM:
         valida: Callable[[], bool] | None = None,
         ao_concluir: Callable[[str], Any] | None = None,
         ao_erro: Callable[[Exception], Any] | None = None,
+        ao_finalizar: Callable[[], Any] | None = None,
         cancelar: threading.Event | None = None,
     ) -> Tarefa:
         tarefa = Tarefa(
@@ -64,6 +66,7 @@ class FilaLLM:
             valida=valida,
             ao_concluir=ao_concluir,
             ao_erro=ao_erro,
+            ao_finalizar=ao_finalizar,
             cancelar=cancelar or threading.Event(),
             seq=self._proximo_seq(),
         )
@@ -92,26 +95,18 @@ class FilaLLM:
             logger.info("descartando tarefa antiga de prioridade=%s skill=%s", tarefa.prioridade, tarefa.skill.get("name"))
             return None
 
-        try:
-            resultado = executar(
-                skill=tarefa.skill,
-                variaveis=tarefa.variaveis,
-                imagem=tarefa.imagem,
-                modo=tarefa.modo,
-                cancelar=tarefa.cancelar,
-                chat=self._chat or __import__("ollama").chat,
-            )
-            if resultado is None:
-                logger.info("tarefa cancelada: %s", tarefa.skill.get("name"))
-                return None
-            return resultado
-        except Exception as exc:
-            if tarefa.ao_erro is not None:
-                try:
-                    tarefa.ao_erro(exc)
-                except Exception:
-                    logger.exception("callback ao_erro falhou para skill=%s", tarefa.skill.get("name"))
-            raise
+        resultado = executar(
+            skill=tarefa.skill,
+            variaveis=tarefa.variaveis,
+            imagem=tarefa.imagem,
+            modo=tarefa.modo,
+            cancelar=tarefa.cancelar,
+            chat=self._chat or __import__("ollama").chat,
+        )
+        if resultado is None:
+            logger.info("tarefa cancelada: %s", tarefa.skill.get("name"))
+            return None
+        return resultado
 
     def loop(self) -> None:
         while not self._parar.is_set():
@@ -138,4 +133,12 @@ class FilaLLM:
             finally:
                 with self._lock:
                     self._em_execucao = None
+                if tarefa.ao_finalizar is not None:
+                    try:
+                        tarefa.ao_finalizar()
+                    except Exception:
+                        logger.exception(
+                            "callback ao_finalizar falhou para skill=%s",
+                            tarefa.skill.get("name"),
+                        )
                 time.sleep(0.01)

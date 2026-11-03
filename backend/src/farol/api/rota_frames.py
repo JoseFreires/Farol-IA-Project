@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 
-import cv2
-import numpy as np
-from fastapi import APIRouter, HTTPException, Request, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Request, Response, WebSocket, WebSocketDisconnect
 
 from src.farol import captura
 
@@ -45,17 +44,44 @@ async def ws_frames(websocket: WebSocket):
 async def frame_upload(request: Request):
     payload = await request.body()
     deps = request.app.state.deps
-    ok = captura.ingerir_frame(deps.slot, payload, deps.cfg.get("api", {}).get("frame_max_bytes", 2_000_000))
-    if not ok:
+    if deps.fila_saida is None:
+        raise HTTPException(status_code=503, detail="fila de saída indisponível")
+    cfg_api = deps.cfg.get("api", {})
+    frame = captura.decodificar_frame(
+        payload, cfg_api.get("frame_max_bytes", 2_000_000)
+    )
+    if frame is None:
         raise HTTPException(status_code=400, detail="frame inválido")
 
+    frame_id = deps.slot.publicar(
+        frame,
+        requisicao=True,
+        ao_registrar=deps.fila_saida.registrar_frame,
+    )
     if deps.sessao is not None:
-        frame = cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_COLOR)
-        if frame is not None and frame.size > 0:
-            frame_id = deps.slot.ultimo()[0] if deps.slot.ultimo() else None
-            deps.sessao.atualizar(ultimo_frame=frame, ultimo_frame_id=frame_id)
+        deps.sessao.atualizar(ultimo_frame=frame, ultimo_frame_id=frame_id)
 
-    return {"status": "ok"}
+    timeout = float(cfg_api.get("timeout_processamento_s", 30))
+    mensagens = await asyncio.to_thread(
+        deps.fila_saida.aguardar_frame, frame_id, timeout
+    )
+    if mensagens is None:
+        if deps.slot.cancelar_requisicao(frame_id):
+            deps.fila_saida.descartar_frame(frame_id)
+        raise HTTPException(
+            status_code=504,
+            detail="tempo limite aguardando o processamento do frame",
+        )
+
+    falas = [
+        mensagem
+        for mensagem in mensagens
+        if mensagem.deveFalar and mensagem.mensagem.strip()
+    ]
+    if not falas:
+        return Response(status_code=204)
+    mensagem = min(falas, key=lambda item: (int(item.prioridade), item.timestamp))
+    return {"frameId": frame_id, "texto": mensagem.mensagem}
 
 
 @router.get("/saida")
