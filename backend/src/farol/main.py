@@ -61,6 +61,10 @@ def _criar_percepcao(cfg: dict, fila_saida: FilaSaida) -> Percepcao:
 
 
 def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
     parser = argparse.ArgumentParser(description="Farol: descrição de ambiente por YOLO + Ollama.")
     parser.add_argument("--fonte", type=str, default="api", help="api, webcam index ou caminho de vídeo")
     parser.add_argument("--config", type=str, default="config/farol.yaml")
@@ -71,6 +75,18 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = _ler_cfg(args.config)
+    logger.info(
+        "auditoria backend iniciado fonte=%s api=%s config=%s estabilizador_frames_entrada=%s "
+        "estabilizador_frames_saida=%s detector_frames_entrada=1 detector_frames_saida=1 "
+        "mudanca_limiar_score=%s mudanca_cooldown_s=%s",
+        args.fonte,
+        not args.sem_api,
+        args.config,
+        cfg.get("mudanca", {}).get("frames_para_entrar", 1),
+        cfg.get("mudanca", {}).get("frames_para_sair", 1),
+        cfg.get("mudanca", {}).get("limiar_score", 0.6),
+        cfg.get("mudanca", {}).get("cooldown_informativo_s", 4),
+    )
     parar = threading.Event()
     slot = SlotFrame()
     sessao = Sessao()
@@ -113,6 +129,8 @@ def main() -> None:
 
     contador_frames = 0
     ultimo_frame_id = None
+    ultimo_resumo_auditoria = time.monotonic()
+    frames_desde_resumo = 0
     while not parar.is_set() and (args.frames == 0 or contador_frames < args.frames):
         requisicao = slot.proxima_requisicao()
         if requisicao is not None:
@@ -177,8 +195,48 @@ def main() -> None:
             cfg_filtro = {**cfg.get("filtro", {}), "largura": frame.shape[1], "altura": frame.shape[0]}
             base = montar_base(bruto, cfg_filtro, cfg_degraus)
             tratados = estabilizador.atualizar(base, cfg.get("mudanca", {}))
+            logger.debug(
+                "auditoria frame_processado frame_id=%d deteccoes=%d objetos_base=%d "
+                "objetos_estaveis=%d descricao_inicial_feita=%s",
+                frame_id,
+                len(bruto),
+                len(base),
+                len(tratados),
+                sessao.estado.descricao_inicial_feita,
+            )
+            frames_desde_resumo += 1
+            agora_resumo = time.monotonic()
+            if agora_resumo - ultimo_resumo_auditoria >= 5:
+                estado_mudanca = sessao.estado.estado_mudanca
+                logger.info(
+                    "auditoria processamento resumo frame_id=%d frame_width=%d frame_height=%d "
+                    "quadros_processados=%d "
+                    "deteccoes=%d objetos_base=%d objetos_estaveis=%d descricao_inicial_feita=%s "
+                    "descricao_em_andamento=%s objetos_confirmados=%d candidatos=%d "
+                    "eventos_pendentes=%d score_pendente=%.3f",
+                    frame_id,
+                    frame.shape[1],
+                    frame.shape[0],
+                    frames_desde_resumo,
+                    len(bruto),
+                    len(base),
+                    len(tratados),
+                    sessao.estado.descricao_inicial_feita,
+                    sessao.estado.descricao_em_andamento,
+                    len(estado_mudanca.confirmados) if estado_mudanca else 0,
+                    len(estado_mudanca.candidatos) if estado_mudanca else 0,
+                    len(estado_mudanca.eventos_pendentes) if estado_mudanca else 0,
+                    estado_mudanca.score_pendente if estado_mudanca else 0.0,
+                )
+                frames_desde_resumo = 0
+                ultimo_resumo_auditoria = agora_resumo
 
             if not sessao.estado.descricao_inicial_feita and not sessao.estado.descricao_em_andamento and tratados:
+                logger.info(
+                    "auditoria descricao_inicial agendada frame_id=%d objetos=%d",
+                    frame_id,
+                    len(tratados),
+                )
                 sessao.atualizar(descricao_em_andamento=True)
                 variaveis = vars_ambiente(
                     tratados, "", [], sessao.estado.riscos_alertados
@@ -189,9 +247,16 @@ def main() -> None:
                     texto: str,
                     frame_id: int = frame_id,
                     revisao: int = revisao,
+                    objetos: int = len(tratados),
                 ) -> None:
                     if sessao.estado.revisao_contexto != revisao:
                         return
+                    logger.info(
+                        "auditoria descricao_inicial concluida frame_id=%d objetos=%d mensagem=%r",
+                        frame_id,
+                        objetos,
+                        texto,
+                    )
                     print(f"[Farol] {texto}")
                     sessao.atualizar(
                         ultima_descricao=texto,
@@ -209,6 +274,11 @@ def main() -> None:
                     if sessao.estado.revisao_contexto != revisao:
                         return
                     sessao.atualizar(descricao_em_andamento=False)
+                    logger.error(
+                        "auditoria descricao_inicial falhou frame_id=%d erro=%s",
+                        frame_id,
+                        exc,
+                    )
                     print(f"[Erro] {exc}")
                     fila_saida.publicar(
                         msg_erro(exc, frame_id=frame_id), interrompe=True
@@ -228,6 +298,11 @@ def main() -> None:
                 except Exception as exc:
                     concluir_tarefa()
                     sessao.atualizar(descricao_em_andamento=False)
+                    logger.exception(
+                        "auditoria descricao_inicial nao_enfileirada frame_id=%d erro=%s",
+                        frame_id,
+                        exc,
+                    )
                     fila_saida.publicar(
                         msg_erro(exc, frame_id=frame_id), interrompe=True
                     )
@@ -243,6 +318,24 @@ def main() -> None:
                 )
                 if decisao.estado_mudanca is not None:
                     sessao.atualizar(estado_mudanca=decisao.estado_mudanca)
+                if decisao.deve_falar and decisao.eventos:
+                    logger.info(
+                        "auditoria mudanca confirmada frame_id=%d motivo=%s drastica=%s eventos=%s",
+                        frame_id,
+                        decisao.motivo,
+                        decisao.drastica,
+                        [
+                            {
+                                "tipo": evento.tipo,
+                                "classe": evento.classe,
+                                "classe_yolo": evento.classe_yolo,
+                                "regiao": evento.regiao,
+                                "distancia": evento.distancia,
+                                "quantidade": evento.quantidade,
+                            }
+                            for evento in decisao.eventos
+                        ],
+                    )
                 if decisao.deve_falar and decisao.eventos:
                     if decisao.deve_chamar_llm:
                         variaveis = vars_ambiente(
@@ -260,6 +353,12 @@ def main() -> None:
                         ) -> None:
                             if sessao.estado.revisao_contexto != revisao:
                                 return
+                            logger.info(
+                                "auditoria mudanca descrita frame_id=%d motivo=%s mensagem=%r",
+                                frame_id,
+                                decisao.motivo,
+                                texto,
+                            )
                             print(f"[Mudanca] {texto}")
                             sessao.atualizar(
                                 ultima_descricao=texto,
@@ -271,6 +370,7 @@ def main() -> None:
                         def ao_erro_mudanca(
                             exc: Exception,
                             frame_id: int = frame_id,
+                            decisao=decisao,
                             revisao: int = sessao.estado.revisao_contexto,
                         ) -> None:
                             if sessao.estado.revisao_contexto != revisao:
@@ -278,6 +378,12 @@ def main() -> None:
                             sessao.atualizar(
                                 contexto_invalido=True,
                                 descricao_em_andamento=False,
+                            )
+                            logger.error(
+                                "auditoria mudanca falhou frame_id=%d motivo=%s erro=%s",
+                                frame_id,
+                                decisao.motivo,
+                                exc,
                             )
                             print(f"[Erro] {exc}")
                             fila_saida.publicar(
@@ -306,6 +412,11 @@ def main() -> None:
                                     ao_finalizar=concluir_tarefa,
                                 )
                             else:
+                                logger.info(
+                                    "auditoria mudanca adiada frame_id=%d motivo=%s motivo_adiamento=fila_llm_ocupada",
+                                    frame_id,
+                                    decisao.motivo,
+                                )
                                 if decisao.estado_mudanca is not None:
                                     decisao.estado_mudanca.eventos_pendentes = [
                                         *decisao.eventos,
@@ -331,6 +442,12 @@ def main() -> None:
                         )
                         if texto:
                             sessao.atualizar(ultimo_ts_fala=time.time())
+                            logger.info(
+                                "auditoria mudanca descrita frame_id=%d motivo=%s origem=python mensagem=%r",
+                                frame_id,
+                                decisao.motivo,
+                                texto,
+                            )
                             print(f"[Mudanca] {texto}")
                             fila_saida.publicar(
                                 msg_ambiente(texto, decisao, frame_id, origem=Origem.SOMENTE_YOLO),
@@ -339,6 +456,11 @@ def main() -> None:
 
             sessao.atualizar(ultimo_frame_id=frame_id, ultimo_json=tratados, ultimo_frame=frame)
         except Exception as exc:
+            logger.exception(
+                "auditoria frame_processamento falhou frame_id=%s erro=%s",
+                frame_id,
+                exc,
+            )
             print(f"[Erro] {exc}")
             fila_saida.publicar(
                 msg_erro(exc, frame_id=frame_id), interrompe=True

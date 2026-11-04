@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 from dataclasses import replace
@@ -166,26 +167,33 @@ def test_pergunta_de_atributo_aguarda_modelo_e_retorna_texto_com_frame_id():
     }
 
 
-def test_websocket_frames_ingere_frame():
+def test_websocket_frames_ingere_frame_e_registra_auditoria(caplog):
     app, _ = _app()
     client = TestClient(app)
     codificado, jpeg = cv2.imencode(".jpg", cv2.UMat(32, 32, cv2.CV_8UC3))
     assert codificado
 
-    with client.websocket_connect("/ws/frames") as websocket:
-        websocket.send_bytes(jpeg.tobytes())
+    with caplog.at_level(logging.INFO, logger="src.farol.api.rota_frames"):
+        with client.websocket_connect("/ws/frames") as websocket:
+            websocket.send_bytes(jpeg.tobytes())
 
     assert app.state.deps.slot.ultimo() is not None
+    assert "auditoria ws_frames conectado" in caplog.text
+    assert "auditoria ws_frames desconectado" in caplog.text
+    assert "quadros_aceitos=1" in caplog.text
 
 
-def test_saida_api_entrega_mensagem_enfileirada_uma_vez():
+def test_saida_api_entrega_mensagem_enfileirada_uma_vez_e_registra_auditoria(caplog):
     app, _ = _app()
     client = TestClient(app)
     fila_saida = app.state.deps.fila_saida
     fila_saida.publicar(msg_resposta("Há uma escada.", Origem.SOMENTE_YOLO, 7))
 
-    resposta = client.get("/saida")
+    with caplog.at_level(logging.INFO, logger="src.farol.api.rota_frames"):
+        resposta = client.get("/saida")
     assert resposta.status_code == 200
     assert resposta.json()["mensagem"] == "Há uma escada."
     assert resposta.json()["frameId"] == 7
+    assert "auditoria saida entregue" in caplog.text
+    assert "frame_id=7" in caplog.text
     assert client.get("/saida").json() == {"status": "vazia"}
