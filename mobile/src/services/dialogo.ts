@@ -1,17 +1,17 @@
 import { motorEscuta } from "./escuta";
-import { aguardarFimDaFala, falar, parar } from "./fala";
+import { aguardarFimDaFala } from "./fala";
+import { gerenciadorFala } from "./gerenciadorFala";
 
-// Fala em voz alta SEM o microfone ouvir a própria voz do app.
-// Pausa a escuta, fala e só retoma quando a fala (e as enfileiradas) terminarem.
+// Fala uma instrução com prioridade de sistema, sem colidir com a escuta do app
 export async function dizer(texto: string): Promise<void> {
-  motorEscuta.pausar();
-  falar(texto);
-  await aguardarFimDaFala(180_000); // descrições longas levam mais de 1 minuto
-  motorEscuta.retomar();
+  await motorEscuta.pausar();
+  gerenciadorFala.falarInstrucao(texto, true);
+  await aguardarFimDaFala(10_000);
+  await motorEscuta.retomar();
 }
 
 // Interrompe qualquer fala e devolve o microfone para a escuta da palavra "Farol"
 export function calar(): void {
-  parar();
+  gerenciadorFala.calar();
   motorEscuta.retomar();
 }

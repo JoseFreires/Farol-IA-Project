@@ -29,7 +29,17 @@ type Valor = {
   restaurarPadroes: () => void;
 };
 
-const Contexto = createContext<Valor | null>(null);
+const VALOR_PADRAO: Valor = {
+  config: PADRAO,
+  cores: obterCores(PADRAO.tema, PADRAO.altoContraste),
+  tema: PADRAO.tema,
+  altoContraste: PADRAO.altoContraste,
+  alternarTema: () => {},
+  atualizar: () => {},
+  restaurarPadroes: () => {},
+};
+
+const Contexto = createContext<Valor>(VALOR_PADRAO);
 
 export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<Configuracoes>(PADRAO);
@@ -95,16 +105,16 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
     [config, cores, alternarTema, atualizar, restaurarPadroes],
   );
 
-  // Evita mostrar telas com valores errados no primeiro instante
-  if (!pronto) return <View style={{ flex: 1, backgroundColor: cores.fundo }} />;
-
-  return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
+  return (
+    <Contexto.Provider value={valor}>
+      {!pronto ? <View style={{ flex: 1, backgroundColor: cores.fundo }} /> : children}
+    </Contexto.Provider>
+  );
 }
 
 export function useConfig(): Valor {
   const valor = useContext(Contexto);
-  if (!valor) throw new Error("useConfig deve ser usado dentro do ConfiguracoesProvider");
-  return valor;
+  return valor ?? VALOR_PADRAO;
 }
 
 export function useTema(): Valor {

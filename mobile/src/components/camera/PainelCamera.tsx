@@ -1,125 +1,73 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import type { Fase } from "../../hooks/useCicloDescricao";
 import { useEstilos } from "../../hooks/useEstilos";
-import { useConfig } from "../../settings/ConfiguracoesContext";
 import { espaco, fonte, raio, type PaletaCores } from "../../theme/tema";
 import { Botao } from "../Botao";
 
 type Props = {
-  fase: Fase;
-  cameraLigada: boolean;
-  textoStatus: string; // mostrado aqui só com a câmera ligada
-  pergunta: string | null;
-  capturaManual: boolean; // true = captura automática desligada: mostra "Tirar foto"
-  aoEditarPergunta: () => void;
-  aoRemoverPergunta: () => void;
-  aoTirarFoto: () => void;
-  aoTirarOutraFoto: () => void;
-  aoOuvirNovamente: () => void;
+  ultimaMensagem: string;
+  perguntaEmAndamento: string | null;
+  ouvindoPergunta: boolean;
+  aoFazerPergunta: () => void;
+  aoRepetirMensagem: () => void;
 };
 
-const FASES_DE_MIRA: readonly Fase[] = ["iniciando", "orientando", "mirando"];
-
 export function PainelCamera({
-  fase,
-  cameraLigada,
-  textoStatus,
-  pergunta,
-  capturaManual,
-  aoEditarPergunta,
-  aoRemoverPergunta,
-  aoTirarFoto,
-  aoTirarOutraFoto,
-  aoOuvirNovamente,
+  ultimaMensagem,
+  perguntaEmAndamento,
+  ouvindoPergunta,
+  aoFazerPergunta,
+  aoRepetirMensagem,
 }: Props) {
   const insets = useSafeAreaInsets();
-  const { cores } = useConfig();
   const e = useEstilos(criarEstilos);
-
-  const emMira = FASES_DE_MIRA.includes(fase);
-  const emResultado = fase === "resultado";
-
-  // Processando com a câmera desligada: nada a fazer, o texto aparece no corpo da tela
-  if (!cameraLigada && !emResultado) return null;
 
   return (
     <View style={[e.painel, { paddingBottom: insets.bottom + espaco.md }]}>
-      {pergunta && !emResultado && (
+      {ouvindoPergunta && (
+        <View style={e.badgeOuvindo}>
+          <Ionicons name="mic" size={20} color="#ef4444" />
+          <Text style={e.badgeOuvindoTexto}>
+            Ouvindo sua pergunta... (pause por 2 segundos para enviar)
+          </Text>
+        </View>
+      )}
+
+      {perguntaEmAndamento && !ouvindoPergunta && (
         <View style={e.badge}>
           <View style={e.badgeTextos}>
-            <Text style={e.badgeRotulo}>Pergunta ao agente:</Text>
-            <Text style={e.badgeTexto} numberOfLines={1}>
-              {pergunta}
+            <Text style={e.badgeRotulo}>Pergunta enviada:</Text>
+            <Text style={e.badgeTexto} numberOfLines={2}>
+              {perguntaEmAndamento}
             </Text>
           </View>
-          <Pressable
-            onPress={aoRemoverPergunta}
-            accessibilityRole="button"
-            accessibilityLabel="Remover pergunta"
-            style={e.badgeRemover}
-          >
-            <Ionicons
-              name="close-circle"
-              size={22}
-              color={cores.modo === "claro" ? cores.luzForte : cores.luz}
-            />
-          </Pressable>
         </View>
       )}
 
-      {cameraLigada && (
-        <ScrollView style={e.areaTexto} showsVerticalScrollIndicator={false}>
-          <Text style={e.texto}>
-            {textoStatus}
-          </Text>
-        </ScrollView>
-      )}
+      <ScrollView style={e.areaTexto} showsVerticalScrollIndicator={false}>
+        <Text style={e.texto} accessibilityLiveRegion="polite">
+          {ultimaMensagem || "Aponte a câmera para o ambiente. As descrições e alertas serão narrados continuamente."}
+        </Text>
+      </ScrollView>
 
-      {emMira && (
-        <View style={e.botoes}>
-          <Botao
-            titulo={pergunta ? "Alterar pergunta" : "Definir pergunta"}
-            variante="secundario"
-            onPress={aoEditarPergunta}
-            accessibilityHint="Digite ou dite o que o agente deve verificar nesta foto"
-          />
-          {capturaManual && (
-            <Botao
-              titulo="Tirar foto"
-              grande
-              desabilitado={fase !== "mirando"}
-              onPress={aoTirarFoto}
-              accessibilityHint="Tira a foto e envia ao agente"
-            />
-          )}
-        </View>
-      )}
+      <View style={e.botoes}>
+        <Botao
+          titulo={ouvindoPergunta ? "Ouvindo pergunta..." : "Fazer pergunta"}
+          grande
+          variante="primario"
+          onPress={aoFazerPergunta}
+          accessibilityHint="Abre o painel para fazer uma pergunta digitando ou usando o microfone"
+        />
 
-      {emResultado && (
-        <View style={e.botoes}>
-          <Botao
-            titulo="Perguntar ao agente"
-            grande
-            onPress={aoEditarPergunta}
-            accessibilityHint="Digite ou dite uma pergunta e tire uma nova foto"
-          />
-          <Botao
-            titulo="Tirar outra foto"
-            variante="secundario"
-            onPress={aoTirarOutraFoto}
-            accessibilityHint="Liga a câmera de novo para uma nova descrição"
-          />
-          <Botao
-            titulo="Ouvir novamente"
-            variante="secundario"
-            onPress={aoOuvirNovamente}
-            accessibilityHint="Repete a descrição em voz alta"
-          />
-        </View>
-      )}
+        <Botao
+          titulo="Repetir fala"
+          variante="secundario"
+          onPress={aoRepetirMensagem}
+          accessibilityHint="Repete a última narração em voz alta"
+        />
+      </View>
     </View>
   );
 }
@@ -147,17 +95,32 @@ function criarEstilos(cores: PaletaCores, altoContraste: boolean) {
       borderWidth: altoContraste ? 2 : 1,
       borderColor: eClaro ? cores.luzForte : cores.luz,
     },
+    badgeOuvindo: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: espaco.sm,
+      padding: espaco.sm,
+      borderRadius: raio.md,
+      backgroundColor: cores.superficie,
+      borderWidth: 2,
+      borderColor: "#ef4444",
+    },
+    badgeOuvindoTexto: {
+      flex: 1,
+      color: cores.textoPrincipal,
+      fontSize: fonte.pequeno,
+      fontWeight: "700",
+    },
     badgeTextos: { flex: 1, gap: 2 },
     badgeRotulo: { color: cores.luzSuave, fontSize: fonte.pequeno, fontWeight: "700" },
     badgeTexto: { color: cores.textoPrincipal, fontSize: fonte.corpo, fontWeight: "700" },
-    badgeRemover: { padding: espaco.xs },
-    areaTexto: { maxHeight: 180 },
+    areaTexto: { maxHeight: 120 },
     texto: {
       color: cores.textoPrincipal,
       fontSize: fonte.corpo,
       lineHeight: 26,
-      fontWeight: altoContraste ? "600" : "500",
+      fontWeight: altoContraste ? "700" : "600",
     },
-    botoes: { gap: espaco.sm },
+    botoes: { gap: espaco.sm, marginTop: espaco.xs },
   });
 }

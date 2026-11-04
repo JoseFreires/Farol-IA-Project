@@ -1,5 +1,3 @@
-import { File as ExpoFile } from "expo-file-system";
-import { Platform } from "react-native";
 import { obterConfig } from "../settings/atual";
 import { normalizarUrl } from "../settings/tipos";
 
@@ -17,70 +15,23 @@ const autorizacao = { Authorization: `Bearer ${TOKEN}` };
 // Identificador único de sessão usado em todas as chamadas ao servidor
 export const SESSION_ID = "mobile-session";
 
-export type ResultadoProcessamento = {
-  sessionId: string;
-  status: string;
-  deveFalar: boolean;
-  mensagem: string | null;
-  prioridade: string;
-  idioma?: string;
-  fallback?: boolean;
-  motivo?: string | null;
-};
-
-type ProcessarParams = {
-  imagemUri: string; // uri local da foto (file://...) ou blob/data uri na web
-  sessionId?: string;
-  pergunta?: string;
-  // true = a pessoa pediu agora (botão ou voz): o servidor descreve de novo,
-  // sem os filtros de "nada mudou" feitos para monitoramento contínuo
-  forcar?: boolean;
-  timeoutMs?: number;
-};
-
-export async function processar({
-  imagemUri,
-  sessionId = SESSION_ID,
-  pergunta,
-  forcar = false,
-  timeoutMs = 90_000, // o modelo local pode demorar
-}: ProcessarParams): Promise<ResultadoProcessamento> {
+// Envia pergunta em texto usando o último contexto visual já mantido pelo backend
+export async function enviarPergunta(texto: string): Promise<void> {
   const base = urlServidor();
   if (!base) throw new Error("Endereço do servidor não configurado.");
-  if (!imagemUri) throw new Error("Imagem não capturada (endereço da foto vazio).");
 
-  const corpo = new FormData();
-  if (Platform.OS === "web") {
-    const respostaImagem = await fetch(imagemUri);
-    if (!respostaImagem.ok) throw new Error("Não foi possível carregar a imagem.");
-    corpo.append("imagem", await respostaImagem.blob(), "captura.jpg");
-  } else {
-    // O fetch do Expo só aceita Blob/File no multipart (o formato { uri, name, type } não funciona)
-    corpo.append("imagem", new ExpoFile(imagemUri));
-  }
-  corpo.append("sessionId", sessionId);
-  if (pergunta) corpo.append("pergunta", pergunta);
-  if (forcar) corpo.append("forcar", "true");
+  const resposta = await fetch(`${base}/pergunta`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...autorizacao,
+    },
+    body: JSON.stringify({ texto }),
+  });
 
-  const controle = new AbortController();
-  const timer = setTimeout(() => controle.abort(), timeoutMs);
-  try {
-    const resp = await fetch(`${base}/processar`, {
-      method: "POST",
-      headers: autorizacao, // não defina Content-Type: o boundary do multipart é automático
-      body: corpo,
-      signal: controle.signal,
-    });
-    if (!resp.ok) {
-      const detalhe = await resp.text().catch(() => "");
-      throw new Error(`Erro ${resp.status}${detalhe ? `: ${detalhe}` : ""}`);
-    }
-    return await resp.json();
-  } catch (erro) {
-    if (controle.signal.aborted) throw new Error("O servidor demorou demais para responder.");
-    throw erro;
-  } finally {
-    clearTimeout(timer);
+  if (!resposta.ok) {
+    const detalhe = await resposta.text().catch(() => "");
+    throw new Error(`Erro ao enviar pergunta (${resposta.status}): ${detalhe}`);
   }
 }
 

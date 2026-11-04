@@ -17,16 +17,14 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Botao } from "../components/Botao";
 import { LinhaOpcoes } from "../components/LinhaOpcoes";
 import { LinhaSwitch } from "../components/LinhaSwitch";
+import { useEscuta } from "../escuta/EscutaContext";
 import { testarConexao, URL_PADRAO } from "../services/api";
-import { falar, listarVozes, parar, type VozInfo } from "../services/fala";
+import { falar, parar } from "../services/fala";
 import { vibrar } from "../services/vibracao";
 import { useConfig } from "../settings/ConfiguracoesContext";
 import {
   normalizarUrl,
-  type Detalhe,
   type ModoTema,
-  type QualidadeFoto,
-  type TomVoz,
   type VelocidadeFala,
 } from "../settings/tipos";
 import { espaco, fonte, raio, type PaletaCores } from "../theme/tema";
@@ -45,23 +43,7 @@ const VELOCIDADES: Item<VelocidadeFala>[] = [
   { valor: "muitoRapida", rotulo: "Muito rápida" },
 ];
 
-const TONS: Item<TomVoz>[] = [
-  { valor: "grave", rotulo: "Grave" },
-  { valor: "normal", rotulo: "Normal" },
-  { valor: "agudo", rotulo: "Agudo" },
-];
 
-const DETALHES: Item<Detalhe>[] = [
-  { valor: "resumo", rotulo: "Resumo" },
-  { valor: "normal", rotulo: "Normal" },
-  { valor: "completo", rotulo: "Completo" },
-];
-
-const QUALIDADES: Item<QualidadeFoto>[] = [
-  { valor: "rapida", rotulo: "Rápida" },
-  { valor: "equilibrada", rotulo: "Equilibrada" },
-  { valor: "detalhada", rotulo: "Detalhada" },
-];
 
 function rotuloDe<T extends string>(lista: Item<T>[], valor: T): string {
   return lista.find((i) => i.valor === valor)?.rotulo.toLowerCase() ?? "";
@@ -90,19 +72,16 @@ function Secao({
 
 export default function Configuracoes() {
   // ===== Hooks no topo =====
-  const { config, cores, tema, alternarTema, atualizar, restaurarPadroes } = useConfig();
+  const { config, cores, atualizar, restaurarPadroes } = useConfig();
+  const { alternar } = useEscuta();
   const e = useMemo(() => criarEstilos(cores, config.altoContraste), [cores, config.altoContraste]);
 
-  const [vozes, setVozes] = useState<VozInfo[]>([]);
   const [endereco, setEndereco] = useState(config.servidorUrl);
   const [campoEmFoco, setCampoEmFoco] = useState(false);
   const [testando, setTestando] = useState(false);
   const [status, setStatus] = useState("");
 
   useEffect(() => {
-    listarVozes()
-      .then(setVozes)
-      .catch(() => setVozes([]));
     return () => parar();
   }, []);
 
@@ -110,7 +89,7 @@ export default function Configuracoes() {
   function voltar() {
     parar();
     if (router.canGoBack()) router.back();
-    else router.replace("/menu");
+    else router.replace("/camera");
   }
 
   async function salvarETestar() {
@@ -127,7 +106,7 @@ export default function Configuracoes() {
       ? "Conectado ao servidor."
       : "Não consegui conectar. Confira o endereço, o Wi-Fi e se o servidor está ligado.";
     setStatus(mensagem);
-    ok ? vibrar.sucesso() : vibrar.erro();
+    if (ok) vibrar.sucesso(); else vibrar.erro();
     falar(mensagem);
   }
 
@@ -145,13 +124,6 @@ export default function Configuracoes() {
     falar("Configurações restauradas para o padrão.");
   }
 
-  const opcoesVoz: Item<string>[] = [
-    { valor: "", rotulo: "Padrão do sistema" },
-    ...vozes.map((v, i) => ({
-      valor: v.id,
-      rotulo: `Voz ${i + 1}${v.melhorQualidade ? " (melhor qualidade)" : ""}`,
-    })),
-  ];
 
   const versao = Constants.expoConfig?.version ?? "1.0.0";
 
@@ -166,7 +138,7 @@ export default function Configuracoes() {
             <Pressable
               onPress={voltar}
               accessibilityRole="button"
-              accessibilityLabel="Voltar ao menu"
+              accessibilityLabel="Voltar à câmera"
               hitSlop={8}
               style={e.voltar}
             >
@@ -211,6 +183,14 @@ export default function Configuracoes() {
 
           {/* ===== Voz ===== */}
           <Secao titulo="Voz" estiloSecao={e.secao} estiloTitulo={e.tituloSecao}>
+            <LinhaSwitch
+              titulo="Assistente de voz"
+              descricao="Permite fazer perguntas por voz dizendo 'Farol' ou segurando na tela da câmera."
+              valor={config.escutaAtiva}
+              onChange={async () => {
+                await alternar();
+              }}
+            />
             <LinhaOpcoes
               titulo="Velocidade da fala"
               opcoes={VELOCIDADES}
@@ -218,29 +198,6 @@ export default function Configuracoes() {
               onChange={(v) => {
                 atualizar({ velocidadeFala: v });
                 falar(`Velocidade ${rotuloDe(VELOCIDADES, v)}`);
-              }}
-            />
-            <LinhaOpcoes
-              titulo="Tom da voz"
-              opcoes={TONS}
-              valor={config.tomVoz}
-              onChange={(v) => {
-                atualizar({ tomVoz: v });
-                falar(`Tom ${rotuloDe(TONS, v)}`);
-              }}
-            />
-            <LinhaOpcoes
-              titulo="Voz"
-              descricao={
-                vozes.length === 0
-                  ? "Nenhuma voz em português do Brasil foi encontrada além da padrão."
-                  : undefined
-              }
-              opcoes={opcoesVoz}
-              valor={config.vozId ?? ""}
-              onChange={(v) => {
-                atualizar({ vozId: v || null });
-                falar("Esta é a voz selecionada.");
               }}
             />
             <Botao
@@ -256,33 +213,8 @@ export default function Configuracoes() {
             </Text>
           </Secao>
 
-          {/* ===== Descrições ===== */}
-          <Secao titulo="Descrições" estiloSecao={e.secao} estiloTitulo={e.tituloSecao}>
-            <LinhaOpcoes
-              titulo="Nível de detalhe"
-              descricao="Resumo: até 2 frases. Normal: até 5 frases. Completo: mais detalhes, e demora um pouco mais."
-              opcoes={DETALHES}
-              valor={config.detalhe}
-              onChange={(v) => {
-                atualizar({ detalhe: v });
-                falar(`Nível de detalhe: ${rotuloDe(DETALHES, v)}`);
-              }}
-            />
-          </Secao>
-
-          {/* ===== Câmera e toque ===== */}
-          <Secao titulo="Câmera e toque" estiloSecao={e.secao} estiloTitulo={e.tituloSecao}>
-            <LinhaOpcoes
-              titulo="Qualidade da foto"
-              descricao="Mais qualidade ajuda a ler textos pequenos, mas a resposta demora mais."
-              opcoes={QUALIDADES}
-              valor={config.qualidadeFoto}
-              onChange={(v) => {
-                atualizar({ qualidadeFoto: v });
-                falar(`Qualidade da foto: ${rotuloDe(QUALIDADES, v)}`);
-              }}
-            />
-      
+          {/* ===== Vibração ===== */}
+          <Secao titulo="Vibração" estiloSecao={e.secao} estiloTitulo={e.tituloSecao}>
             <LinhaSwitch
               titulo="Vibração"
               descricao="Vibra ao tirar a foto, ao confirmar e em caso de erro."
@@ -303,7 +235,7 @@ export default function Configuracoes() {
               onChangeText={setEndereco}
               onFocus={() => setCampoEmFoco(true)}
               onBlur={() => setCampoEmFoco(false)}
-              placeholder={URL_PADRAO || "http://192.168.0.10:8000"}
+              placeholder={URL_PADRAO || "http://192.168.1.11:8000"}
               placeholderTextColor={cores.textoSuave}
               keyboardType="url"
               autoCapitalize="none"

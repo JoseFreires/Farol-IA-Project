@@ -2,7 +2,6 @@ export type ModoTema = "escuro" | "claro";
 export type VelocidadeFala = "lenta" | "normal" | "rapida" | "muitoRapida";
 export type TomVoz = "grave" | "normal" | "agudo";
 export type Detalhe = "resumo" | "normal" | "completo";
-export type QualidadeFoto = "rapida" | "equilibrada" | "detalhada";
 
 export type Configuracoes = {
   tema: ModoTema;
@@ -11,8 +10,6 @@ export type Configuracoes = {
   tomVoz: TomVoz;
   vozId: string | null; // null = voz padrão do sistema
   detalhe: Detalhe;
-  qualidadeFoto: QualidadeFoto;
-  capturaAutomatica: boolean;
   vibracao: boolean;
   servidorUrl: string; // vazio = usar o endereço do .env
   escutaAtiva: boolean; // assistente de voz ("Farol") ligado
@@ -25,38 +22,29 @@ export const PADRAO: Configuracoes = {
   tomVoz: "normal",
   vozId: null,
   detalhe: "normal",
-  qualidadeFoto: "rapida",
-  capturaAutomatica: true,
   vibracao: true,
   servidorUrl: "",
-  escutaAtiva: false,
+  escutaAtiva: true,
 };
 
 // Tradução das escolhas para valores reais
 export const TAXA_FALA: Record<VelocidadeFala, number> = {
-  lenta: 0.5,
-  normal: 1.1,
-  rapida: 2,
-  muitoRapida: 3,
+  lenta: 0.75,
+  normal: 1,
+  rapida: 1.3,
+  muitoRapida: 1.7,
 };
 
 export const TOM_VOZ: Record<TomVoz, number> = {
-  grave: 0.5,
-  normal: 1.5,
-  agudo: 2.5,
-};
-
-export const LARGURA_FOTO: Record<QualidadeFoto, number> = {
-  rapida: 1024,
-  equilibrada: 1280,
-  detalhada: 1536,
+  grave: 0.8,
+  normal: 1,
+  agudo: 1.2,
 };
 
 const TEMAS = ["escuro", "claro"] as const;
 const VELOCIDADES = ["lenta", "normal", "rapida", "muitoRapida"] as const;
 const TONS = ["grave", "normal", "agudo"] as const;
 const DETALHES = ["resumo", "normal", "completo"] as const;
-const QUALIDADES = ["rapida", "equilibrada", "detalhada"] as const;
 
 function escolher<T extends string>(valor: unknown, validos: readonly T[], padrao: T): T {
   return typeof valor === "string" && (validos as readonly string[]).includes(valor)
@@ -75,11 +63,6 @@ export function normalizar(bruto: unknown): Configuracoes {
     tomVoz: escolher(b.tomVoz, TONS, PADRAO.tomVoz),
     vozId: typeof b.vozId === "string" && b.vozId ? b.vozId : null,
     detalhe: escolher(b.detalhe, DETALHES, PADRAO.detalhe),
-    qualidadeFoto: escolher(b.qualidadeFoto, QUALIDADES, PADRAO.qualidadeFoto),
-    capturaAutomatica:
-      typeof b.capturaAutomatica === "boolean"
-        ? b.capturaAutomatica
-        : PADRAO.capturaAutomatica,
     vibracao: typeof b.vibracao === "boolean" ? b.vibracao : PADRAO.vibracao,
     servidorUrl: typeof b.servidorUrl === "string" ? b.servidorUrl : PADRAO.servidorUrl,
     escutaAtiva: typeof b.escutaAtiva === "boolean" ? b.escutaAtiva : PADRAO.escutaAtiva,

@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   KeyboardAvoidingView,
   Modal,
@@ -45,11 +45,14 @@ export function ModalPergunta({
   const { cores } = useConfig();
   const e = useEstilos(criarEstilos);
   const [texto, setTexto] = useState(valorInicial);
+  const [visivelAnterior, setVisivelAnterior] = useState(visivel);
 
-  // Cada vez que abre, começa pela pergunta atual
-  useEffect(() => {
-    if (visivel) setTexto(valorInicial);
-  }, [visivel, valorInicial]);
+  if (visivel !== visivelAnterior) {
+    setVisivelAnterior(visivel);
+    if (visivel) {
+      setTexto(valorInicial);
+    }
+  }
 
   return (
     <Modal visible={visivel} transparent animationType="slide" onRequestClose={aoFechar}>
