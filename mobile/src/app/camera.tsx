@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, type AppStateStatus, Pressable, StyleSheet, View } from "react-native";
+import { AppState, type AppStateStatus, Linking, Pressable, StyleSheet, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router, useFocusEffect } from "expo-router";
 
@@ -20,11 +20,70 @@ import { vibrar } from "../services/vibracao";
 import type { PaletaCores } from "../theme/tema";
 
 export default function CameraScreen() {
-  const [permissao, pedirPermissao] = useCameraPermissions();
+  const [permissao, pedirPermissao, obterPermissao] = useCameraPermissions();
+  const [permissaoAtualizada, setPermissaoAtualizada] = useState<
+    Awaited<ReturnType<typeof pedirPermissao>> | null
+  >(null);
+  const [solicitandoPermissao, setSolicitandoPermissao] = useState(false);
+  const [erroPermissao, setErroPermissao] = useState<string | null>(null);
+  const permissaoExibida = permissaoAtualizada ?? permissao;
 
-  if (!permissao) return null;
-  if (!permissao.granted) {
-    return <PermissaoCamera aoPermitir={pedirPermissao} aoVoltar={() => router.push("/configuracoes")} />;
+  useEffect(() => {
+    const assinatura = AppState.addEventListener("change", (estado: AppStateStatus) => {
+      if (estado === "active") {
+        obterPermissao()
+          .then(setPermissaoAtualizada)
+          .catch((erro: unknown) => {
+            setErroPermissao(
+              erro instanceof Error
+                ? erro.message
+                : "Não foi possível verificar a permissão da câmera."
+            );
+          });
+      }
+    });
+    return () => assinatura.remove();
+  }, [obterPermissao]);
+
+  const permitirCamera = useCallback(async () => {
+    setSolicitandoPermissao(true);
+    setErroPermissao(null);
+    try {
+      if (permissaoExibida?.canAskAgain === false) {
+        await Linking.openSettings();
+      } else {
+        const resultado = await pedirPermissao();
+        setPermissaoAtualizada(resultado);
+        if (!resultado.granted) {
+          setErroPermissao(
+            resultado.canAskAgain
+              ? "A permissão não foi concedida. Toque em Permitir câmera para tentar novamente."
+              : "O acesso foi bloqueado. Abra as configurações do aplicativo para permitir a câmera."
+          );
+        }
+      }
+    } catch (erro: unknown) {
+      setErroPermissao(
+        erro instanceof Error
+          ? erro.message
+          : "Não foi possível solicitar acesso à câmera."
+      );
+    } finally {
+      setSolicitandoPermissao(false);
+    }
+  }, [permissaoExibida, pedirPermissao]);
+
+  if (!permissaoExibida) return null;
+  if (!permissaoExibida.granted) {
+    return (
+      <PermissaoCamera
+        aoPermitir={permitirCamera}
+        aoVoltar={() => router.push("/configuracoes")}
+        precisaAbrirConfiguracoes={!permissaoExibida.canAskAgain}
+        carregando={solicitandoPermissao}
+        erro={erroPermissao}
+      />
+    );
   }
   return <TelaCameraContinua />;
 }
@@ -126,7 +185,16 @@ function TelaCameraContinua() {
     setUltimaMensagem(`Consultando: "${pergunta}"`);
 
     try {
-      await enviarPergunta(pergunta);
+      const resposta = await enviarPergunta(pergunta);
+      setUltimaMensagem(resposta.texto);
+      setPerguntaEmAndamento(null);
+      gerenciadorFala.enfileirar({
+        texto: resposta.texto,
+        prioridade: 2,
+        interrompe: false,
+        expiraEmMs: 8000,
+        frameId: resposta.frameId ?? undefined,
+      });
     } catch (err) {
       console.error("Erro ao enviar pergunta:", err);
       vibrar.erro();

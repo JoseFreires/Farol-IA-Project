@@ -20,6 +20,7 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.farol",
       "permissions": [
+        "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.FOREGROUND_SERVICE",
@@ -41,10 +42,17 @@
         }
       ],
       [
+        "expo-camera",
+        {
+          "cameraPermission": "O Farol precisa acessar a câmera para descrever o ambiente.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
         "react-native-vosk",
         {
           "models": [
-            "assets/model-small-pt-0.3"
+            "assets/model-pt-fb-v0.1.1-20220516_2113/model-pt-fb-v0.1.1-20220516_2113"
           ],
           "iOSMicrophonePermission": "O Farol precisa acessar o microfone para reconhecer sua fala."
         }
@@ -62,7 +70,7 @@
         }
       },
       "eas": {
-        "projectId": "8ebee3e9-dffd-4353-b24e-1792bbb8e754"
+        "projectId": "a5a26b34-d953-4b5c-b0db-0ce807d206ca"
       }
     }
   }

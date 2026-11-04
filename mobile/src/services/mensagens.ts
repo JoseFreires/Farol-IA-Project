@@ -1,4 +1,4 @@
-import { urlServidor } from "./api";
+import { cabecalhosAutorizacao, urlServidor } from "./api";
 import { gerenciadorFala, type PrioridadeMensagem } from "./gerenciadorFala";
 
 export type MensagemBackend = {
@@ -80,7 +80,7 @@ class ServicoMensagens {
     try {
       const resp = await fetch(`${base}/saida`, {
         method: "GET",
-        headers: { Accept: "application/json" },
+        headers: { Accept: "application/json", ...cabecalhosAutorizacao() },
         signal: this.abortController.signal,
       });
 
@@ -164,4 +164,3 @@ class ServicoMensagens {
 }
 
 export const servicoMensagens = new ServicoMensagens();
-

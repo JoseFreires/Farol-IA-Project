@@ -27,6 +27,11 @@ class Deps:
 def criar_app(deps: Deps) -> FastAPI:
     app = FastAPI(title="Farol")
     app.state.deps = deps
+
+    @app.get("/health")
+    async def health():
+        return {"ok": True}
+
     app.include_router(router_frames)
     app.include_router(router_perguntas)
     return app

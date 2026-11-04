@@ -91,6 +91,15 @@ def test_frame_e_pergunta_rotas():
     }
 
 
+def test_health_retorna_ok():
+    app, _ = _app()
+
+    resposta = TestClient(app).get("/health")
+
+    assert resposta.status_code == 200
+    assert resposta.json() == {"ok": True}
+
+
 def test_post_frame_retorna_fala_e_remove_mensagem_da_fila():
     app, _ = _app()
     client = TestClient(app)

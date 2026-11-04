@@ -40,8 +40,7 @@ class ServicoTransmissao {
   private reconexaoTimer: ReturnType<typeof setTimeout> | null = null;
   private tentativaReconexao = 0;
 
-  private readonly INTERVALO_MS = 100; // ~10 frames por segundo, ideal para visão contínua sem sobrecarregar a câmera
-  private readonly INTERVALO_MINIMO_MS = 30; // Garante folga mínima entre capturas para o visor da câmera fluir suavemente
+  private readonly INTERVALO_MS = 1000 / 24; // Meta de 24 quadros por segundo
   private readonly MAX_BYTES = 2_000_000; // Limite padrão de 2 MB do backend
 
   public assinarStatus(cb: OuvinteStatus): () => void {
@@ -203,7 +202,7 @@ class ServicoTransmissao {
     } finally {
       this.enviando = false;
       const duracao = Date.now() - inicio;
-      const espera = Math.max(this.INTERVALO_MINIMO_MS, this.INTERVALO_MS - duracao);
+      const espera = Math.max(0, this.INTERVALO_MS - duracao);
       this.agendarProximoFrame(espera);
     }
   }

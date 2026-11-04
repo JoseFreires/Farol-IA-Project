@@ -10,13 +10,20 @@ export function urlServidor(): string {
   return normalizarUrl(obterConfig().servidorUrl) || URL_PADRAO;
 }
 
-const autorizacao = { Authorization: `Bearer ${TOKEN}` };
+export function cabecalhosAutorizacao(): Record<string, string> {
+  return TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {};
+}
+
+export type RespostaPergunta = {
+  frameId: number | null;
+  texto: string;
+};
 
 // Identificador único de sessão usado em todas as chamadas ao servidor
 export const SESSION_ID = "mobile-session";
 
 // Envia pergunta em texto usando o último contexto visual já mantido pelo backend
-export async function enviarPergunta(texto: string): Promise<void> {
+export async function enviarPergunta(texto: string): Promise<RespostaPergunta> {
   const base = urlServidor();
   if (!base) throw new Error("Endereço do servidor não configurado.");
 
@@ -24,7 +31,7 @@ export async function enviarPergunta(texto: string): Promise<void> {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...autorizacao,
+      ...cabecalhosAutorizacao(),
     },
     body: JSON.stringify({ texto }),
   });
@@ -33,6 +40,19 @@ export async function enviarPergunta(texto: string): Promise<void> {
     const detalhe = await resposta.text().catch(() => "");
     throw new Error(`Erro ao enviar pergunta (${resposta.status}): ${detalhe}`);
   }
+
+  const dados: unknown = await resposta.json();
+  if (
+    !dados ||
+    typeof dados !== "object" ||
+    !("texto" in dados) ||
+    typeof dados.texto !== "string" ||
+    !("frameId" in dados) ||
+    (typeof dados.frameId !== "number" && dados.frameId !== null)
+  ) {
+    throw new Error("Resposta inválida do servidor ao processar a pergunta.");
+  }
+  return { frameId: dados.frameId, texto: dados.texto };
 }
 
 // Chama /health com limite de tempo. Aceita um endereço para testar antes de salvar.
@@ -43,7 +63,10 @@ export async function testarConexao(url?: string, tempoMs = 4000): Promise<boole
   const controle = new AbortController();
   const timer = setTimeout(() => controle.abort(), tempoMs);
   try {
-    const resp = await fetch(`${base}/health`, { signal: controle.signal });
+    const resp = await fetch(`${base}/health`, {
+      headers: cabecalhosAutorizacao(),
+      signal: controle.signal,
+    });
     return resp.ok;
   } catch {
     return false;
