@@ -36,12 +36,19 @@ class ServicoTransmissao {
 
   private ativo = false;
   private enviando = false;
+  private geracao = 0;
+  private proximoIdConexao = 0;
   private loopTimer: ReturnType<typeof setTimeout> | null = null;
   private reconexaoTimer: ReturnType<typeof setTimeout> | null = null;
   private tentativaReconexao = 0;
+  private ultimaFalhaCapturaLog = 0;
+  private quadrosEnviados = 0;
+  private bytesEnviados = 0;
+  private duracaoCapturaMs = 0;
+  private inicioResumo = Date.now();
+  private limiteFrameLog = 0;
 
-  private readonly INTERVALO_MS = 100; // ~10 frames por segundo, ideal para visão contínua sem sobrecarregar a câmera
-  private readonly INTERVALO_MINIMO_MS = 30; // Garante folga mínima entre capturas para o visor da câmera fluir suavemente
+  private readonly INTERVALO_MS = 1000 / 24; // Meta de 24 quadros por segundo
   private readonly MAX_BYTES = 2_000_000; // Limite padrão de 2 MB do backend
 
   public assinarStatus(cb: OuvinteStatus): () => void {
@@ -63,7 +70,13 @@ class ServicoTransmissao {
     if (!cameraRef) return;
     this.camera = cameraRef;
     this.ativo = true;
-    this.tentativaReconexao = 0;
+    if (
+      this.socket?.readyState === WebSocket.CONNECTING ||
+      this.socket?.readyState === WebSocket.OPEN ||
+      this.reconexaoTimer
+    ) {
+      return;
+    }
     this.conectar();
   }
 
@@ -73,7 +86,7 @@ class ServicoTransmissao {
 
   public parar() {
     this.ativo = false;
-    this.enviando = false;
+    this.geracao += 1;
 
     if (this.loopTimer) {
       clearTimeout(this.loopTimer);
@@ -98,25 +111,33 @@ class ServicoTransmissao {
 
   private conectar() {
     if (!this.ativo) return;
+    if (
+      this.socket?.readyState === WebSocket.CONNECTING ||
+      this.socket?.readyState === WebSocket.OPEN
+    ) {
+      return;
+    }
     const url = urlWebSocketFrames();
     if (!url) {
       this.definirStatus("erro");
       return;
     }
 
-    console.log("ServicoTransmissao: conectando em", url);
+    const conexaoId = ++this.proximoIdConexao;
+    console.log("ServicoTransmissao: conectando", conexaoId, "em", url);
     this.definirStatus("conectando");
 
     try {
       const ws = new WebSocket(url);
+      this.socket = ws;
       ws.binaryType = "arraybuffer";
 
       ws.onopen = () => {
-        if (!this.ativo) {
+        if (!this.ativo || this.socket !== ws) {
           ws.close();
           return;
         }
-        console.log("ServicoTransmissao: WebSocket conectado com sucesso!");
+        console.log("ServicoTransmissao: WebSocket", conexaoId, "conectado com sucesso!");
         this.socket = ws;
         this.tentativaReconexao = 0;
         this.definirStatus("transmitindo");
@@ -124,13 +145,19 @@ class ServicoTransmissao {
       };
 
       ws.onerror = (err) => {
+        if (this.socket !== ws) return;
         console.log("Erro no WebSocket de frames:", err);
         this.definirStatus("erro");
       };
 
       ws.onclose = (ev) => {
-        console.log("WebSocket de frames fechado. Código:", ev.code, "Motivo:", ev.reason);
+        if (this.socket !== ws) return;
+        console.log("WebSocket", conexaoId, "de frames fechado. Código:", ev.code, "Motivo:", ev.reason);
         this.socket = null;
+        if (this.loopTimer) {
+          clearTimeout(this.loopTimer);
+          this.loopTimer = null;
+        }
         if (this.ativo) {
           this.definirStatus("erro");
           this.tentarReconectar();
@@ -152,13 +179,16 @@ class ServicoTransmissao {
     this.tentativaReconexao++;
 
     this.reconexaoTimer = setTimeout(() => {
+      this.reconexaoTimer = null;
       this.conectar();
     }, atraso);
   }
 
   private agendarProximoFrame(tempoMs: number) {
-    if (!this.ativo) return;
+    if (!this.ativo || this.socket?.readyState !== WebSocket.OPEN) return;
+    if (this.loopTimer) clearTimeout(this.loopTimer);
     this.loopTimer = setTimeout(() => {
+      this.loopTimer = null;
       this.capturarEEnviar();
     }, tempoMs);
   }
@@ -166,14 +196,21 @@ class ServicoTransmissao {
   private async capturarEEnviar() {
     if (!this.ativo) return;
 
-    // Regra obrigatória: se socket não está aberto ou envio anterior está pendente, descarta
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN || this.enviando || !this.camera) {
-      this.agendarProximoFrame(this.INTERVALO_MS);
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN || !this.camera) {
+      this.agendarProximoFrame(250);
+      return;
+    }
+
+    if (this.enviando) {
+      this.agendarProximoFrame(250);
       return;
     }
 
     this.enviando = true;
+    const geracao = this.geracao;
+    const socket = this.socket;
     const inicio = Date.now();
+    let capturaFalhou = false;
 
     try {
       // Captura sem som de obturador e sem processamento extra pesado
@@ -184,7 +221,12 @@ class ServicoTransmissao {
         base64: true,
       });
 
-      if (!this.ativo || !this.socket || this.socket.readyState !== WebSocket.OPEN) {
+      if (
+        !this.ativo ||
+        geracao !== this.geracao ||
+        this.socket !== socket ||
+        socket?.readyState !== WebSocket.OPEN
+      ) {
         return;
       }
 
@@ -196,16 +238,50 @@ class ServicoTransmissao {
             bytes.byteOffset + bytes.byteLength
           ) as ArrayBuffer;
           this.socket.send(bufferEnvio);
+          this.quadrosEnviados += 1;
+          this.bytesEnviados += bytes.byteLength;
+          this.duracaoCapturaMs += Date.now() - inicio;
+          this.registrarResumoEnvio();
+        } else {
+          const agora = Date.now();
+          if (agora - this.limiteFrameLog >= 15_000) {
+            console.warn("Frame descartado por exceder limite:", bytes.byteLength, this.MAX_BYTES);
+            this.limiteFrameLog = agora;
+          }
         }
       }
-    } catch {
-      // Falha temporária em um frame: descarta e segue em frente
+    } catch (erro: unknown) {
+      capturaFalhou = true;
+      const agora = Date.now();
+      if (agora - this.ultimaFalhaCapturaLog >= 15_000) {
+        console.warn("Falha ao capturar ou preparar um frame; tentando o próximo.", erro);
+        this.ultimaFalhaCapturaLog = agora;
+      }
     } finally {
       this.enviando = false;
-      const duracao = Date.now() - inicio;
-      const espera = Math.max(this.INTERVALO_MINIMO_MS, this.INTERVALO_MS - duracao);
-      this.agendarProximoFrame(espera);
+      if (geracao === this.geracao) {
+        const duracao = Date.now() - inicio;
+        const espera = capturaFalhou ? 1000 : Math.max(250, this.INTERVALO_MS - duracao);
+        this.agendarProximoFrame(espera);
+      }
     }
+  }
+
+  private registrarResumoEnvio() {
+    const agora = Date.now();
+    const intervalo = agora - this.inicioResumo;
+    if (intervalo < 5000) return;
+
+    console.info("Auditoria de frames mobile:", {
+      quadros: this.quadrosEnviados,
+      bytes: this.bytesEnviados,
+      fps: Number((this.quadrosEnviados / (intervalo / 1000)).toFixed(2)),
+      capturaMediaMs: Math.round(this.duracaoCapturaMs / this.quadrosEnviados),
+    });
+    this.quadrosEnviados = 0;
+    this.bytesEnviados = 0;
+    this.duracaoCapturaMs = 0;
+    this.inicioResumo = agora;
   }
 }
 

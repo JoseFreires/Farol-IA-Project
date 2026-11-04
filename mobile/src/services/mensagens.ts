@@ -1,4 +1,4 @@
-import { urlServidor } from "./api";
+import { cabecalhosAutorizacao, urlServidor } from "./api";
 import { gerenciadorFala, type PrioridadeMensagem } from "./gerenciadorFala";
 
 export type MensagemBackend = {
@@ -24,6 +24,7 @@ class ServicoMensagens {
   private ouvintes: Set<OuvinteMensagem> = new Set();
   private ultimoFrameIdInformativo = 0;
   private consultando = false;
+  private ultimaFalhaPolling: { chave: string; timestamp: number } | null = null;
 
   private readonly INTERVALO_POLLING_MS = 350;
 
@@ -80,14 +81,20 @@ class ServicoMensagens {
     try {
       const resp = await fetch(`${base}/saida`, {
         method: "GET",
-        headers: { Accept: "application/json" },
+        headers: { Accept: "application/json", ...cabecalhosAutorizacao() },
         signal: this.abortController.signal,
       });
 
       if (!this.ativo) return;
 
       if (!resp.ok) {
+        this.registrarFalhaPolling(`HTTP ${resp.status}`);
         return;
+      }
+
+      if (this.ultimaFalhaPolling) {
+        console.info("Polling /saida recuperado após", this.ultimaFalhaPolling.chave);
+        this.ultimaFalhaPolling = null;
       }
 
       const dados = await resp.json();
@@ -100,7 +107,9 @@ class ServicoMensagens {
       if ((err as Error)?.name === "AbortError") {
         return;
       }
-      // Ignora erro de rede temporário na fila de saída
+      this.registrarFalhaPolling(
+        err instanceof Error ? `rede: ${err.message}` : "erro de rede desconhecido"
+      );
     } finally {
       this.consultando = false;
       this.abortController = null;
@@ -108,6 +117,18 @@ class ServicoMensagens {
         this.agendarProxima(this.INTERVALO_POLLING_MS);
       }
     }
+  }
+
+  private registrarFalhaPolling(chave: string) {
+    const agora = Date.now();
+    if (
+      this.ultimaFalhaPolling?.chave === chave &&
+      agora - this.ultimaFalhaPolling.timestamp < 15_000
+    ) {
+      return;
+    }
+    console.warn("Falha ao consultar /saida:", chave);
+    this.ultimaFalhaPolling = { chave, timestamp: agora };
   }
 
   private processarMensagem(msg: MensagemBackend) {
@@ -125,6 +146,11 @@ class ServicoMensagens {
 
     // Descarta mensagem já expirada
     if (agora > timestampMs + expiraEmMs) {
+      console.warn("Mensagem /saida descartada por expiração:", {
+        frameId: msg.frameId,
+        motivo: msg.motivo,
+        expiraEmMs,
+      });
       return;
     }
 
@@ -133,6 +159,11 @@ class ServicoMensagens {
     // Para mensagens informativas, descarta se o frameId for mais antigo que o último já falado
     if (prioridade === 3 && msg.frameId !== undefined) {
       if (msg.frameId < this.ultimoFrameIdInformativo) {
+        console.warn("Mensagem /saida informativa descartada por frame antigo:", {
+          frameId: msg.frameId,
+          ultimoFrameId: this.ultimoFrameIdInformativo,
+          motivo: msg.motivo,
+        });
         return;
       }
       this.ultimoFrameIdInformativo = msg.frameId;
@@ -164,4 +195,3 @@ class ServicoMensagens {
 }
 
 export const servicoMensagens = new ServicoMensagens();
-

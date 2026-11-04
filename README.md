@@ -57,7 +57,7 @@ OLLAMA_MODEL=qwen2.5vl:7b
 Ainda dentro de `backend/`, inicie a API:
 
 ```powershell
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+python -m src.farol.main --host 0.0.0.0 --port 8000
 ```
 
 Confirme no navegador do computador:
@@ -105,7 +105,7 @@ No app, também é possível abrir **Configurações**, informar o endereço do 
    ```powershell
    cd backend
    .\.venv\Scripts\Activate.ps1
-   python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+   python -m src.farol.main --host 0.0.0.0 --port 8000
    ```
 3. Em outro terminal, inicie o app:
    ```powershell

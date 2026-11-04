@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AppState, type AppStateStatus, Pressable, StyleSheet, View } from "react-native";
+import { AppState, type AppStateStatus, Linking, Pressable, StyleSheet, View } from "react-native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { router, useFocusEffect } from "expo-router";
 
@@ -19,12 +19,86 @@ import { servicoTransmissao, type StatusTransmissao } from "../services/transmis
 import { vibrar } from "../services/vibracao";
 import type { PaletaCores } from "../theme/tema";
 
-export default function CameraScreen() {
-  const [permissao, pedirPermissao] = useCameraPermissions();
+function escolherResolucaoCaptura(tamanhos: string[]): string | null {
+  const candidatos = tamanhos
+    .map((tamanho) => {
+      const resultado = /^(\d+)x(\d+)$/i.exec(tamanho);
+      if (!resultado) return null;
+      const largura = Number(resultado[1]);
+      const altura = Number(resultado[2]);
+      if (Math.min(largura, altura) < 480) return null;
+      return { tamanho, area: largura * altura };
+    })
+    .filter((item): item is { tamanho: string; area: number } => item !== null)
+    .sort((a, b) => a.area - b.area);
+  return candidatos[0]?.tamanho ?? null;
+}
 
-  if (!permissao) return null;
-  if (!permissao.granted) {
-    return <PermissaoCamera aoPermitir={pedirPermissao} aoVoltar={() => router.push("/configuracoes")} />;
+export default function CameraScreen() {
+  const [permissao, pedirPermissao, obterPermissao] = useCameraPermissions();
+  const [permissaoAtualizada, setPermissaoAtualizada] = useState<
+    Awaited<ReturnType<typeof pedirPermissao>> | null
+  >(null);
+  const [solicitandoPermissao, setSolicitandoPermissao] = useState(false);
+  const [erroPermissao, setErroPermissao] = useState<string | null>(null);
+  const permissaoExibida = permissaoAtualizada ?? permissao;
+
+  useEffect(() => {
+    const assinatura = AppState.addEventListener("change", (estado: AppStateStatus) => {
+      if (estado === "active") {
+        obterPermissao()
+          .then(setPermissaoAtualizada)
+          .catch((erro: unknown) => {
+            setErroPermissao(
+              erro instanceof Error
+                ? erro.message
+                : "Não foi possível verificar a permissão da câmera."
+            );
+          });
+      }
+    });
+    return () => assinatura.remove();
+  }, [obterPermissao]);
+
+  const permitirCamera = useCallback(async () => {
+    setSolicitandoPermissao(true);
+    setErroPermissao(null);
+    try {
+      if (permissaoExibida?.canAskAgain === false) {
+        await Linking.openSettings();
+      } else {
+        const resultado = await pedirPermissao();
+        setPermissaoAtualizada(resultado);
+        if (!resultado.granted) {
+          setErroPermissao(
+            resultado.canAskAgain
+              ? "A permissão não foi concedida. Toque em Permitir câmera para tentar novamente."
+              : "O acesso foi bloqueado. Abra as configurações do aplicativo para permitir a câmera."
+          );
+        }
+      }
+    } catch (erro: unknown) {
+      setErroPermissao(
+        erro instanceof Error
+          ? erro.message
+          : "Não foi possível solicitar acesso à câmera."
+      );
+    } finally {
+      setSolicitandoPermissao(false);
+    }
+  }, [permissaoExibida, pedirPermissao]);
+
+  if (!permissaoExibida) return null;
+  if (!permissaoExibida.granted) {
+    return (
+      <PermissaoCamera
+        aoPermitir={permitirCamera}
+        aoVoltar={() => router.push("/configuracoes")}
+        precisaAbrirConfiguracoes={!permissaoExibida.canAskAgain}
+        carregando={solicitandoPermissao}
+        erro={erroPermissao}
+      />
+    );
   }
   return <TelaCameraContinua />;
 }
@@ -38,16 +112,63 @@ function TelaCameraContinua() {
   const [statusTransmissao, setStatusTransmissao] = useState<StatusTransmissao>("desconectado");
   const [ultimaMensagem, setUltimaMensagem] = useState<string>("");
   const [perguntaEmAndamento, setPerguntaEmAndamento] = useState<string | null>(null);
+  const [pictureSize, setPictureSize] = useState<string>();
 
   const jaOrientou = useRef(false);
   const emFocoRef = useRef(false);
   const cameraProntaRef = useRef(false);
+  const resolucaoConfiguradaRef = useRef(false);
+  const resolucaoEmConfiguracaoRef = useRef(false);
+  const timerResolucaoRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const orientacaoConcluidaRef = useRef(false);
+  const orientacaoEmAndamentoRef = useRef(false);
+  const geracaoFluxoRef = useRef(0);
 
   // Pausa a escuta do Vosk enquanto a câmera está ligando e a orientação inicial não foi dita
   useEffect(() => {
     if (!jaOrientou.current) {
       motorEscuta.pausar();
     }
+  }, []);
+
+  const iniciarFluxoCamera = useCallback(async () => {
+    if (!emFocoRef.current || !cameraProntaRef.current || !cameraRef.current) return;
+    if (resolucaoEmConfiguracaoRef.current) return;
+    if (orientacaoEmAndamentoRef.current) return;
+
+    if (!orientacaoConcluidaRef.current) {
+      orientacaoEmAndamentoRef.current = true;
+      jaOrientou.current = true;
+      const geracao = geracaoFluxoRef.current;
+      try {
+        await dizer("Câmera pronta. Aponte para o ambiente; diga Farol para perguntar.");
+        if (geracao !== geracaoFluxoRef.current || !emFocoRef.current) return;
+        orientacaoConcluidaRef.current = true;
+      } catch (erro: unknown) {
+        console.error("Erro ao reproduzir a orientação inicial:", erro);
+        if (geracao !== geracaoFluxoRef.current || !emFocoRef.current) return;
+        orientacaoConcluidaRef.current = true;
+      } finally {
+        if (geracao === geracaoFluxoRef.current) {
+          orientacaoEmAndamentoRef.current = false;
+        }
+      }
+    }
+
+    if (!emFocoRef.current || !cameraProntaRef.current || !cameraRef.current) return;
+    servicoTransmissao.iniciar(cameraRef.current);
+    servicoMensagens.iniciar();
+  }, []);
+
+  const pausarFluxoCamera = useCallback(() => {
+    geracaoFluxoRef.current += 1;
+    orientacaoEmAndamentoRef.current = false;
+    if (!orientacaoConcluidaRef.current) {
+      jaOrientou.current = false;
+    }
+    servicoTransmissao.parar();
+    servicoMensagens.parar();
+    calar();
   }, []);
 
   // Escuta status da transmissão
@@ -72,50 +193,58 @@ function TelaCameraContinua() {
   useFocusEffect(
     useCallback(() => {
       emFocoRef.current = true;
-      if (cameraProntaRef.current && cameraRef.current) {
-        servicoTransmissao.iniciar(cameraRef.current);
-        servicoMensagens.iniciar();
-      }
+      void iniciarFluxoCamera();
 
       return () => {
         emFocoRef.current = false;
-        servicoTransmissao.parar();
-        servicoMensagens.parar();
-        calar();
+        pausarFluxoCamera();
       };
-    }, [])
+    }, [iniciarFluxoCamera, pausarFluxoCamera])
   );
 
   // Gerencia segundo plano (AppState)
   useEffect(() => {
     const sub = AppState.addEventListener("change", (proximoEstado: AppStateStatus) => {
       if (proximoEstado === "active" && emFocoRef.current && cameraProntaRef.current && cameraRef.current) {
-        servicoTransmissao.iniciar(cameraRef.current);
-        servicoMensagens.iniciar();
+        void iniciarFluxoCamera();
       } else if (proximoEstado === "background") {
-        servicoTransmissao.parar();
-        servicoMensagens.parar();
-        calar();
+        pausarFluxoCamera();
       }
     });
     return () => sub.remove();
-  }, []);
+  }, [iniciarFluxoCamera, pausarFluxoCamera]);
 
   const aoCameraPronta = useCallback(async () => {
     cameraProntaRef.current = true;
-    if (emFocoRef.current && cameraRef.current) {
-      servicoTransmissao.iniciar(cameraRef.current);
-      servicoMensagens.iniciar();
+    if (!resolucaoConfiguradaRef.current) {
+      resolucaoConfiguradaRef.current = true;
+      resolucaoEmConfiguracaoRef.current = true;
+      try {
+        const tamanhos = await cameraRef.current?.getAvailablePictureSizesAsync();
+        const resolucao = escolherResolucaoCaptura(tamanhos ?? []);
+        if (resolucao) {
+          console.info("Resolução de captura da câmera:", resolucao);
+          setPictureSize(resolucao);
+          timerResolucaoRef.current = setTimeout(() => {
+            timerResolucaoRef.current = null;
+            resolucaoEmConfiguracaoRef.current = false;
+            void iniciarFluxoCamera();
+          }, 1000);
+          return;
+        }
+      } catch (erro: unknown) {
+        console.warn("Não foi possível consultar os tamanhos da câmera:", erro);
+      }
+      resolucaoEmConfiguracaoRef.current = false;
+    } else if (resolucaoEmConfiguracaoRef.current) {
+      if (timerResolucaoRef.current) {
+        clearTimeout(timerResolucaoRef.current);
+        timerResolucaoRef.current = null;
+      }
+      resolucaoEmConfiguracaoRef.current = false;
     }
-
-    // Fala a instrução inicial ao abrir e só libera o Vosk após o término da fala
-    if (!jaOrientou.current && emFocoRef.current) {
-      jaOrientou.current = true;
-      await dizer(
-        "Câmera do Farol pronta. Aponte a câmera para o ambiente ou objeto à sua frente. Diga Farol para fazer uma pergunta ou segure na tela."
-      );
-    }
-  }, []);
+    void iniciarFluxoCamera();
+  }, [iniciarFluxoCamera]);
 
   // Envia pergunta ao backend (mantendo o fluxo de transmissão contínuo sem reenvio de foto)
   const processarPergunta = useCallback(async (texto: string) => {
@@ -126,7 +255,16 @@ function TelaCameraContinua() {
     setUltimaMensagem(`Consultando: "${pergunta}"`);
 
     try {
-      await enviarPergunta(pergunta);
+      const resposta = await enviarPergunta(pergunta);
+      setUltimaMensagem(resposta.texto);
+      setPerguntaEmAndamento(null);
+      gerenciadorFala.enfileirar({
+        texto: resposta.texto,
+        prioridade: 2,
+        interrompe: false,
+        expiraEmMs: 8000,
+        frameId: resposta.frameId ?? undefined,
+      });
     } catch (err) {
       console.error("Erro ao enviar pergunta:", err);
       vibrar.erro();
@@ -180,6 +318,7 @@ function TelaCameraContinua() {
         ref={cameraRef}
         style={StyleSheet.absoluteFill}
         facing="back"
+        pictureSize={pictureSize}
         onCameraReady={aoCameraPronta}
         animateShutter={false}
         mute={true}

@@ -6,11 +6,20 @@ import { espaco, fonte, type PaletaCores } from "../../theme/tema";
 import { Botao } from "../Botao";
 
 type Props = {
-  aoPermitir: () => void;
+  aoPermitir: () => void | Promise<void>;
   aoVoltar: () => void;
+  precisaAbrirConfiguracoes?: boolean;
+  carregando?: boolean;
+  erro?: string | null;
 };
 
-export function PermissaoCamera({ aoPermitir, aoVoltar }: Props) {
+export function PermissaoCamera({
+  aoPermitir,
+  aoVoltar,
+  precisaAbrirConfiguracoes = false,
+  carregando = false,
+  erro,
+}: Props) {
   const e = useEstilos(criarEstilos);
 
   return (
@@ -22,7 +31,33 @@ export function PermissaoCamera({ aoPermitir, aoVoltar }: Props) {
         O Farol precisa da câmera para capturar e orientar você por voz. Nenhuma foto é
         compartilhada sem sua autorização.
       </Text>
-      <Botao titulo="Permitir câmera" grande onPress={aoPermitir} style={e.botao} />
+      {precisaAbrirConfiguracoes && (
+        <Text style={e.texto}>
+          O acesso foi bloqueado pelo sistema. Abra as configurações do aplicativo e permita o
+          acesso à câmera.
+        </Text>
+      )}
+      {erro ? <Text style={e.erro}>{erro}</Text> : null}
+      <Botao
+        titulo={
+          carregando
+            ? "Aguardando..."
+            : precisaAbrirConfiguracoes
+              ? "Abrir configurações"
+              : "Permitir câmera"
+        }
+        accessibilityHint={
+          precisaAbrirConfiguracoes
+            ? "Abre as configurações do aplicativo para permitir o acesso à câmera"
+            : "Solicita acesso à câmera"
+        }
+        grande
+        desabilitado={carregando}
+        onPress={() => {
+          void aoPermitir();
+        }}
+        style={e.botao}
+      />
       <Botao titulo="Voltar ao menu" variante="secundario" onPress={aoVoltar} style={e.botao} />
     </SafeAreaView>
   );
@@ -33,6 +68,7 @@ function criarEstilos(cores: PaletaCores) {
     tela: { flex: 1, justifyContent: "center", gap: espaco.md, padding: espaco.lg, backgroundColor: cores.fundo },
     titulo: { color: cores.textoPrincipal, fontSize: fonte.titulo, fontWeight: "800" },
     texto: { color: cores.textoSecundario, fontSize: fonte.corpo, lineHeight: 26 },
+    erro: { color: cores.coralLuminoso, fontSize: fonte.corpo, lineHeight: 26 },
     botao: { alignSelf: "stretch" },
   });
 }
