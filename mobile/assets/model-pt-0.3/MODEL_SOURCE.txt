@@ -1,0 +1,3 @@
+Model: vosk-model-small-pt-0.3
+Source: https://alphacephei.com/vosk/models/vosk-model-small-pt-0.3.zip
+License: Apache 2.0 (see LICENSE)

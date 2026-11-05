@@ -52,7 +52,7 @@
         "react-native-vosk",
         {
           "models": [
-            "assets/model-pt-fb-v0.1.1-20220516_2113/model-pt-fb-v0.1.1-20220516_2113"
+            "assets/model-pt-0.3"
           ],
           "iOSMicrophonePermission": "O Farol precisa acessar o microfone para reconhecer sua fala."
         }

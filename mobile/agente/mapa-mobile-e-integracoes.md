@@ -147,17 +147,15 @@ Alterações somente em TypeScript normalmente podem ser servidas pelo Metro. Al
 
 ### Modelo Vosk e tamanho do build
 
-O modelo local existe em `mobile/assets/model-pt-fb-v0.1.1-20220516_2113/`, com outra pasta de mesmo nome dentro dela. Por isso, o config plugin aponta diretamente para a pasta interna que contém `am/final.mdl`, `conf/model.conf` e `graph/HCLG.fst`:
+O modelo compacto oficial de português (`vosk-model-small-pt-0.3`) fica em `mobile/assets/model-pt-0.3/`. O arquivo ZIP tem cerca de 31 MB e os arquivos descompactados ocupam cerca de 51 MB. A licença Apache 2.0 e a origem do modelo estão registradas junto aos assets. Por ser um modelo pequeno, sua precisão de transcrição é inferior à de modelos grandes; valide o reconhecimento em aparelhos e sotaques representativos.
 
 ```json
 "models": [
-  "assets/model-pt-fb-v0.1.1-20220516_2113/model-pt-fb-v0.1.1-20220516_2113"
+  "assets/model-pt-0.3"
 ]
 ```
 
-Um build anterior excedeu o limite de upload do EAS: o arquivo `rescore/G.carpa` ocupava aproximadamente 2,17 GB e o arquivo compactado do projeto chegou a 2,3 GB. Na inspeção posterior, esse arquivo já não estava presente; o modelo remanescente media cerca de 422 MB e continha `rescore/G.fst`. Não remova arquivos do modelo sem validar que o Vosk ainda consegue carregá-lo e reconhecer fala.
-
-Antes de excluir arquivos do arquivo de build, confira o conteúdo com `eas build:inspect`. Se for criado um `.easignore`, ele substitui as regras do `.gitignore` para o upload EAS: copie as regras necessárias do `.gitignore` e acrescente somente exclusões específicas. A pasta do modelo deve continuar no arquivo de build enquanto o reconhecimento offline depender dela.
+O modelo precisa permanecer no arquivo de build porque o reconhecimento é offline. A configuração do plugin e o identificador passado a `loadModel` devem usar o mesmo nome (`model-pt-0.3`). Depois de alterar o modelo ou o plugin, gere e instale um novo build nativo.
 
 ## Verificações úteis
 

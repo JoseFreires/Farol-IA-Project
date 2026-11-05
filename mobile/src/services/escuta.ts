@@ -7,7 +7,7 @@ import { Platform } from "react-native";
 // ---------------------------------------------------------------------------
 
 // Pasta do modelo de português dentro de assets/ (o nome PRECISA começar com "model-")
-export const MODELO = "model-pt-fb-v0.1.1-20220516_2113";
+export const MODELO = "model-pt-0.3";
 
 // Ativação por voz: "farol", tolerando pequenas variações fonéticas do modelo acústico offline
 const ATIVACAO = /\b(?:ei\s+)?(farol|faraó|varol|faroli)\b[\s,.!?:;-]*/i;

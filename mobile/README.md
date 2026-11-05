@@ -10,7 +10,7 @@ Aplicativo móvel em **React Native com Expo (SDK 58)** voltado à assistência 
 * **Roteamento:** Expo Router (arquitetura baseada em arquivos em `src/app`)
 * **Linguagem:** TypeScript
 * **Visão Computacional:** Câmera contínua com captura de quadros via `expo-camera`
-* **Reconhecimento de Voz (STT):** Motor offline `react-native-vosk` com modelo local em português brasileiro (`assets/model-small-pt-0.3`)
+* **Reconhecimento de Voz (STT):** Motor offline `react-native-vosk` com modelo compacto de português (`assets/model-pt-0.3`, cerca de 51 MB descompactado; Apache 2.0, [origem](https://alphacephei.com/vosk/models))
 * **Síntese de Voz (TTS):** Narrador com controle de velocidade, tom e seleção de voz via `expo-speech`
 * **Gerenciador de Fala:** Fila de mensagens orientada a prioridades (`1: Risco/Emergência`, `2: Resposta/Sistema`, `3: Descrição de Ambiente`)
 * **Feedback Tátil:** Vibrações hápticas de confirmação e erro via `expo-haptics`
