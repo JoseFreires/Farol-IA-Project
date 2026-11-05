@@ -134,7 +134,7 @@ class FilaSaida:
                 ]
             entrada = EntradaSaida(
                 prioridade=int(mensagem.prioridade),
-                expiracao=mensagem.timestamp + (mensagem.expiraEmMs / 1000.0),
+                expiracao=mensagem.expira_em,
                 seq=self._proximo_seq(),
                 msg=mensagem,
             )

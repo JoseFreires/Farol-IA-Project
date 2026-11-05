@@ -15,6 +15,7 @@ class SlotFrame:
         self._dado: tuple[int, Any] | None = None
         self._contador = 0
         self._requisicoes: deque[tuple[int, Any]] = deque()
+        self._timestamps: dict[int, float] = {}
 
     def publicar(
         self,
@@ -26,6 +27,9 @@ class SlotFrame:
         with self._lock:
             self._contador += 1
             frame_id = self._contador
+            self._timestamps[frame_id] = time.time()
+            if len(self._timestamps) > 128:
+                self._timestamps.pop(next(iter(self._timestamps)))
             if ao_registrar is not None:
                 ao_registrar(frame_id)
             self._dado = (frame_id, frame)
@@ -40,6 +44,10 @@ class SlotFrame:
     def proxima_requisicao(self) -> tuple[int, Any] | None:
         with self._lock:
             return self._requisicoes.popleft() if self._requisicoes else None
+
+    def timestamp(self, frame_id: int) -> float | None:
+        with self._lock:
+            return self._timestamps.get(frame_id)
 
     def cancelar_requisicao(self, frame_id: int) -> bool:
         with self._lock:

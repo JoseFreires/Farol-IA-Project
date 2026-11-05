@@ -105,6 +105,28 @@ def test_descricao_corrige_posicao_usando_fatos_do_yolo():
     )
 
 
+def test_executar_mantem_modelo_carregado():
+    chamadas = []
+
+    def chat(**kwargs):
+        chamadas.append(kwargs)
+        yield {"message": {"content": "Texto."}}
+
+    skills.executar(
+        {
+            "name": "responder-pergunta",
+            "model": "qwen2.5vl:3b",
+            "options": {},
+            "sistema": "Sistema",
+            "usuario": {"": "{{pergunta}}"},
+        },
+        {"pergunta": "Onde está?"},
+        chat=chat,
+    )
+
+    assert chamadas[0]["keep_alive"] == "30m"
+
+
 class ChatFake:
     def __init__(self, texto):
         self.texto = texto

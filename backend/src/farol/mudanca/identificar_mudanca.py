@@ -36,6 +36,7 @@ class EstadoRastreamento:
     eventos_pendentes: list[EventoMudanca] = field(default_factory=list)
     score_pendente: float = 0.0
     pendente_drastica: bool = False
+    primeiro_pendente_ts: float | None = None
     classes_inanimadas_anunciadas: set[str] = field(default_factory=set)
 
 
@@ -122,6 +123,8 @@ def identificar_mudanca(objetos_atuais: tuple, estado_sessao, cfg_mudanca: dict,
     if getattr(estado_sessao, "contexto_invalido", False) and not rastreamento.pendente_drastica:
         rastreamento.pendente_drastica = True
         rastreamento.eventos_pendentes.append(_evento_drastico())
+        if rastreamento.primeiro_pendente_ts is None:
+            rastreamento.primeiro_pendente_ts = agora
 
     frames_para_entrar = max(1, int(cfg_mudanca.get("frames_para_entrar", 1)))
     frames_para_sair = max(1, int(cfg_mudanca.get("frames_para_sair", 1)))
@@ -181,6 +184,8 @@ def identificar_mudanca(objetos_atuais: tuple, estado_sessao, cfg_mudanca: dict,
         rastreamento.eventos_pendentes.append(_evento_drastico())
         rastreamento.pendente_drastica = True
         rastreamento.score_pendente = 0.0
+        if rastreamento.primeiro_pendente_ts is None:
+            rastreamento.primeiro_pendente_ts = agora
     else:
         for objeto in saidas:
             eventos_novos.append(
@@ -202,6 +207,8 @@ def identificar_mudanca(objetos_atuais: tuple, estado_sessao, cfg_mudanca: dict,
             )
         rastreamento.eventos_pendentes.extend(eventos_novos)
         rastreamento.score_pendente += score_novo
+        if eventos_novos and rastreamento.primeiro_pendente_ts is None:
+            rastreamento.primeiro_pendente_ts = agora
 
     rastreamento.confirmados = confirmados
     rastreamento.candidatos = candidatos
@@ -211,7 +218,20 @@ def identificar_mudanca(objetos_atuais: tuple, estado_sessao, cfg_mudanca: dict,
     cooldown = float(cfg_mudanca.get("cooldown_informativo_s", 4))
     cooldown_vencido = ultimo_ts is None or agora - ultimo_ts >= cooldown
     limiar = float(cfg_mudanca.get("limiar_score", 0.6))
-    pode_falar = rastreamento.pendente_drastica or rastreamento.score_pendente >= limiar
+    idade_pendente = (
+        0.0
+        if rastreamento.primeiro_pendente_ts is None
+        else max(0.0, agora - rastreamento.primeiro_pendente_ts)
+    )
+    max_espera = max(0.0, float(cfg_mudanca.get("max_espera_evento_s", 2.5)))
+    pode_falar = (
+        rastreamento.pendente_drastica
+        or rastreamento.score_pendente >= limiar
+        or (
+            bool(rastreamento.eventos_pendentes)
+            and idade_pendente >= max_espera
+        )
+    )
     deve_falar = bool(rastreamento.eventos_pendentes and pode_falar and cooldown_vencido)
 
     if deve_falar:
@@ -223,6 +243,7 @@ def identificar_mudanca(objetos_atuais: tuple, estado_sessao, cfg_mudanca: dict,
         rastreamento.eventos_pendentes = []
         rastreamento.score_pendente = 0.0
         rastreamento.pendente_drastica = False
+        rastreamento.primeiro_pendente_ts = None
         return DecisaoMudanca(
             deve_falar=True,
             motivo=motivo,

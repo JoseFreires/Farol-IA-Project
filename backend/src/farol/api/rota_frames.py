@@ -40,7 +40,8 @@ async def ws_frames(websocket: WebSocket):
             if not deps.slot:
                 continue
             bytes_recebidos += len(dados)
-            aceito = captura.ingerir_frame(
+            aceito = await asyncio.to_thread(
+                captura.ingerir_frame,
                 deps.slot,
                 dados,
                 deps.cfg.get("api", {}).get("frame_max_bytes", 2_000_000),
@@ -68,6 +69,10 @@ async def ws_frames(websocket: WebSocket):
                 bytes_recebidos = 0
                 quadros_invalidos = 0
     except WebSocketDisconnect:
+        pass
+    except Exception as exc:
+        logger.exception("erro ao receber frame via websocket: %s", exc)
+    finally:
         logger.info(
             "auditoria ws_frames desconectado cliente=%s quadros_aceitos=%d "
             "quadros_invalidos=%d bytes=%d",
@@ -76,8 +81,6 @@ async def ws_frames(websocket: WebSocket):
             quadros_invalidos,
             bytes_recebidos,
         )
-    except Exception as exc:
-        logger.exception("erro ao receber frame via websocket: %s", exc)
 
 
 @router.post("/frame")
@@ -125,7 +128,9 @@ async def frame_upload(request: Request):
     falas = [
         mensagem
         for mensagem in mensagens
-        if mensagem.deveFalar and mensagem.mensagem.strip()
+        if mensagem.deveFalar
+        and mensagem.mensagem.strip()
+        and not mensagem.expirada()
     ]
     if not falas:
         logger.info(
@@ -164,4 +169,11 @@ async def proxima_saida(request: Request):
         mensagem.expiraEmMs,
         mensagem.mensagem,
     )
-    return mensagem.to_dict()
+    resposta = mensagem.to_dict()
+    origem_ttl = (
+        mensagem.capturadoEm
+        if mensagem.capturadoEm is not None
+        else mensagem.timestamp
+    )
+    resposta["idadeMs"] = max(0, round((time.time() - origem_ttl) * 1000))
+    return resposta

@@ -37,7 +37,7 @@ def _app(*, fila_llm=None, skills=None):
     ), sessao
 
 
-def _iniciar_processador_frame(app, texto=None, deve_falar=True):
+def _iniciar_processador_frame(app, texto=None, deve_falar=True, capturado_em=None):
     def processar():
         while True:
             requisicao = app.state.deps.slot.proxima_requisicao()
@@ -45,6 +45,8 @@ def _iniciar_processador_frame(app, texto=None, deve_falar=True):
                 frame_id, _ = requisicao
                 if texto is not None:
                     mensagem = msg_ambiente(texto, None, frame_id)
+                    if capturado_em is not None:
+                        mensagem = replace(mensagem, capturadoEm=capturado_em)
                     if not deve_falar:
                         mensagem = replace(mensagem, deveFalar=False)
                     app.state.deps.fila_saida.publicar(mensagem)
@@ -128,6 +130,20 @@ def test_post_frame_nao_retorna_mensagem_com_deve_falar_falso():
     assert client.get("/saida").json() == {"status": "vazia"}
 
 
+def test_post_frame_nao_retorna_mensagem_expirada_desde_a_captura():
+    app, _ = _app()
+    _iniciar_processador_frame(
+        app,
+        "descrição antiga",
+        capturado_em=time.time() - 10,
+    )
+
+    resposta = TestClient(app).post("/frame", content=_jpeg_teste())
+
+    assert resposta.status_code == 204
+    assert resposta.content == b""
+
+
 def test_post_frame_retorna_504_se_nao_for_processado_no_prazo():
     app, _ = _app()
     app.state.deps.cfg["api"]["timeout_processamento_s"] = 0.01
@@ -177,6 +193,13 @@ def test_websocket_frames_ingere_frame_e_registra_auditoria(caplog):
         with client.websocket_connect("/ws/frames") as websocket:
             websocket.send_bytes(jpeg.tobytes())
 
+    deadline = time.monotonic() + 0.5
+    while (
+        "auditoria ws_frames desconectado" not in caplog.text
+        and time.monotonic() < deadline
+    ):
+        time.sleep(0.01)
+
     assert app.state.deps.slot.ultimo() is not None
     assert "auditoria ws_frames conectado" in caplog.text
     assert "auditoria ws_frames desconectado" in caplog.text
@@ -187,13 +210,18 @@ def test_saida_api_entrega_mensagem_enfileirada_uma_vez_e_registra_auditoria(cap
     app, _ = _app()
     client = TestClient(app)
     fila_saida = app.state.deps.fila_saida
-    fila_saida.publicar(msg_resposta("Há uma escada.", Origem.SOMENTE_YOLO, 7))
+    mensagem = replace(
+        msg_resposta("Há uma escada.", Origem.SOMENTE_YOLO, 7),
+        capturadoEm=time.time() - 0.25,
+    )
+    fila_saida.publicar(mensagem)
 
     with caplog.at_level(logging.INFO, logger="src.farol.api.rota_frames"):
         resposta = client.get("/saida")
     assert resposta.status_code == 200
     assert resposta.json()["mensagem"] == "Há uma escada."
     assert resposta.json()["frameId"] == 7
+    assert 200 <= resposta.json()["idadeMs"] < 1000
     assert "auditoria saida entregue" in caplog.text
     assert "frame_id=7" in caplog.text
     assert client.get("/saida").json() == {"status": "vazia"}

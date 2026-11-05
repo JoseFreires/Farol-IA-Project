@@ -6,6 +6,7 @@ export type MensagemBackend = {
   frameId?: number;
   timestamp?: number;
   expiraEmMs?: number;
+  idadeMs?: number;
   prioridade?: PrioridadeMensagem;
   motivo?: string;
   origem?: string;
@@ -135,24 +136,27 @@ class ServicoMensagens {
     if (!msg.mensagem) return;
 
     const agora = Date.now();
-    // O backend pode enviar timestamp em segundos float ou ms
+    const expiraEmMs = msg.expiraEmMs ?? 4000;
     const timestampMs = msg.timestamp
       ? msg.timestamp < 1e11
         ? msg.timestamp * 1000
         : msg.timestamp
       : agora;
+    const idadeMs =
+      typeof msg.idadeMs === "number" && Number.isFinite(msg.idadeMs)
+        ? Math.max(0, msg.idadeMs)
+        : Math.max(0, agora - timestampMs);
 
-    const expiraEmMs = msg.expiraEmMs ?? 4000;
-
-    // Descarta mensagem já expirada
-    if (agora > timestampMs + expiraEmMs) {
+    if (idadeMs >= expiraEmMs) {
       console.warn("Mensagem /saida descartada por expiração:", {
         frameId: msg.frameId,
         motivo: msg.motivo,
         expiraEmMs,
+        idadeMs,
       });
       return;
     }
+    const timestampLocal = agora - idadeMs;
 
     const prioridade: PrioridadeMensagem = (msg.prioridade as PrioridadeMensagem) ?? 3;
 
@@ -186,7 +190,7 @@ class ServicoMensagens {
         prioridade,
         interrompe: msg.interrompe ?? (prioridade === 1),
         expiraEmMs,
-        timestamp: timestampMs,
+        timestamp: timestampLocal,
         frameId: msg.frameId,
         deveFalar: true,
       });

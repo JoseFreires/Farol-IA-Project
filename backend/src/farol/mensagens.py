@@ -30,7 +30,7 @@ def normalizar_para_tts(texto: str) -> str:
     return t
 
 
-def _base(session_id: str, mensagem: str, *, prioridade: Prioridade, motivo: str | Motivo, origem: Origem | str, frame_id: int | None, expira_ms: int, interrompe: bool = False, eventos: list[dict] | None = None, deve_falar: bool = True) -> MensagemSaida:
+def _base(session_id: str, mensagem: str, *, prioridade: Prioridade, motivo: str | Motivo, origem: Origem | str, frame_id: int | None, expira_ms: int, interrompe: bool = False, eventos: list[dict] | None = None, deve_falar: bool = True, capturado_em: float | None = None) -> MensagemSaida:
     return MensagemSaida(
         sessionId=session_id,
         frameId=frame_id,
@@ -43,10 +43,11 @@ def _base(session_id: str, mensagem: str, *, prioridade: Prioridade, motivo: str
         deveFalar=deve_falar,
         interrompe=interrompe,
         eventos=eventos or [],
+        capturadoEm=capturado_em,
     )
 
 
-def msg_risco(r, frame_id: int | None, session_id: str = "session-1", expira_ms_risco: int = 3000) -> MensagemSaida:
+def msg_risco(r, frame_id: int | None, session_id: str = "session-1", expira_ms_risco: int = 3000, capturado_em: float | None = None) -> MensagemSaida:
     return _base(
         session_id,
         getattr(r, "mensagem", str(r)),
@@ -56,6 +57,7 @@ def msg_risco(r, frame_id: int | None, session_id: str = "session-1", expira_ms_
         frame_id=frame_id,
         expira_ms=expira_ms_risco,
         interrompe=True,
+        capturado_em=capturado_em,
     )
 
 
@@ -66,6 +68,7 @@ def msg_ambiente(
     session_id: str = "session-1",
     expira_ms_informativa: int = 4000,
     origem: Origem | str = Origem.VLM,
+    capturado_em: float | None = None,
 ) -> MensagemSaida:
     return _base(
         session_id,
@@ -75,6 +78,7 @@ def msg_ambiente(
         origem=origem,
         frame_id=frame_id,
         expira_ms=expira_ms_informativa,
+        capturado_em=capturado_em,
     )
 
 
@@ -94,6 +98,7 @@ def msg_erro(
     exc: Exception,
     session_id: str = "session-1",
     frame_id: int | None = None,
+    capturado_em: float | None = None,
 ) -> MensagemSaida:
     texto = "Não consegui acessar o modelo de descrição."
     if exc is not None and str(exc):
@@ -107,6 +112,7 @@ def msg_erro(
         frame_id=frame_id,
         expira_ms=5000,
         deve_falar=True,
+        capturado_em=capturado_em,
     )
 
 

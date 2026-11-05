@@ -48,7 +48,9 @@ class ServicoTransmissao {
   private inicioResumo = Date.now();
   private limiteFrameLog = 0;
 
-  private readonly INTERVALO_MS = 1000 / 24; // Meta de 24 quadros por segundo
+  private readonly INTERVALO_MS = 1000 / 30; // Meta de 30 quadros por segundo
+  private readonly LIMITE_BUFFER_BYTES = 256_000;
+  private readonly ESPERA_CONGESTIONAMENTO_MS = 15;
   private readonly MAX_BYTES = 2_000_000; // Limite padrão de 2 MB do backend
 
   public assinarStatus(cb: OuvinteStatus): () => void {
@@ -206,6 +208,11 @@ class ServicoTransmissao {
       return;
     }
 
+    if (this.socket.bufferedAmount > this.LIMITE_BUFFER_BYTES) {
+      this.agendarProximoFrame(this.ESPERA_CONGESTIONAMENTO_MS);
+      return;
+    }
+
     this.enviando = true;
     const geracao = this.geracao;
     const socket = this.socket;
@@ -261,7 +268,7 @@ class ServicoTransmissao {
       this.enviando = false;
       if (geracao === this.geracao) {
         const duracao = Date.now() - inicio;
-        const espera = capturaFalhou ? 1000 : Math.max(250, this.INTERVALO_MS - duracao);
+        const espera = capturaFalhou ? 1000 : Math.max(0, this.INTERVALO_MS - duracao);
         this.agendarProximoFrame(espera);
       }
     }

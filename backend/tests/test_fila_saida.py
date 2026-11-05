@@ -1,5 +1,6 @@
 import threading
 import time
+from dataclasses import replace
 
 from src.farol.contratos import MensagemSaida, Motivo, Origem, Prioridade
 from src.farol.fila_saida import FilaSaida
@@ -38,6 +39,16 @@ def test_fila_saida_ttl_prioridade_e_interrompe():
     assert fila.proxima().prioridade == Prioridade.CRITICA
     assert fila.proxima() is None
     assert fila.vazia() is True
+
+
+def test_fila_saida_ttl_usa_instante_da_captura_quando_disponivel():
+    fila = FilaSaida()
+    mensagem = make_msg("observação antiga", Prioridade.INFORMATIVA, expira_ms=1000)
+    mensagem = replace(mensagem, capturadoEm=time.time() - 2)
+
+    fila.publicar(mensagem)
+
+    assert fila.proxima() is None
 
 
 def test_fila_saida_interrompe_limpa_informativas():

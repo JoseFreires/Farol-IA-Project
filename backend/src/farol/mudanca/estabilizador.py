@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, replace
 from typing import Sequence
 
@@ -15,6 +16,8 @@ class _EstadoObjeto:
     objeto: ObjetoTratado
     presencas: int = 1
     ausencias: int = 0
+    primeiro_visto_ts: float = 0.0
+    ultimo_visto_ts: float = 0.0
     rotulo_pendente: tuple[str, str] | None = None
     rotulo_frames: int = 0
 
@@ -45,10 +48,17 @@ class Estabilizador:
         return saida
 
     def atualizar(
-        self, tratados: Sequence[ObjetoTratado], cfg: dict
+        self, tratados: Sequence[ObjetoTratado], cfg: dict, agora: float | None = None
     ) -> tuple[ObjetoTratado, ...]:
-        frames_entrada = max(1, int(cfg.get("frames_para_entrar", 1)))
+        agora = time.monotonic() if agora is None else agora
+        frames_rotulo = max(1, int(cfg.get("frames_para_entrar", 1)))
+        frames_entrada = max(
+            1,
+            int(cfg.get("min_quadros_para_entrar", cfg.get("frames_para_entrar", 1))),
+        )
+        tempo_entrada = max(0.0, float(cfg.get("tempo_para_entrar_s", 0.0)))
         frames_saida = max(1, int(cfg.get("frames_para_sair", 1)))
+        tempo_saida = cfg.get("tempo_para_sair_s")
         atuais = self._chaves(tratados)
         chaves_atuais = {chave for _, chave in atuais}
         saida: dict[tuple, ObjetoTratado] = {}
@@ -56,8 +66,12 @@ class Estabilizador:
         for objeto, chave in atuais:
             estado = self._objetos.get(chave)
             if estado is None:
-                estado = _EstadoObjeto(objeto=objeto)
-                if frames_entrada <= 1:
+                estado = _EstadoObjeto(
+                    objeto=objeto,
+                    primeiro_visto_ts=agora,
+                    ultimo_visto_ts=agora,
+                )
+                if frames_entrada <= 1 and tempo_entrada <= 0:
                     self._objetos[chave] = estado
                     saida[chave] = objeto
                 else:
@@ -65,6 +79,7 @@ class Estabilizador:
                 continue
 
             estado.ausencias = 0
+            estado.ultimo_visto_ts = agora
             rotulo_atual = (estado.objeto.horizontal, estado.objeto.distancia)
             rotulo_novo = (objeto.horizontal, objeto.distancia)
             if rotulo_novo == rotulo_atual:
@@ -76,7 +91,7 @@ class Estabilizador:
                 else:
                     estado.rotulo_pendente = rotulo_novo
                     estado.rotulo_frames = 1
-                if estado.rotulo_frames >= frames_entrada:
+                if estado.rotulo_frames >= frames_rotulo:
                     estado.objeto = replace(
                         estado.objeto,
                         horizontal=objeto.horizontal,
@@ -94,7 +109,10 @@ class Estabilizador:
             )
             if estado.presencas < frames_entrada:
                 estado.presencas += 1
-            if estado.presencas >= frames_entrada:
+            if (
+                estado.presencas >= frames_entrada
+                and agora - estado.primeiro_visto_ts >= tempo_entrada
+            ):
                 self._objetos[chave] = estado
                 saida[chave] = estado.objeto
 
@@ -105,7 +123,12 @@ class Estabilizador:
                 del self._objetos[chave]
                 continue
             estado.ausencias += 1
-            if estado.ausencias >= frames_saida:
+            sumiu = (
+                agora - estado.ultimo_visto_ts >= max(0.0, float(tempo_saida))
+                if tempo_saida is not None
+                else estado.ausencias >= frames_saida
+            )
+            if sumiu:
                 del self._objetos[chave]
             else:
                 saida[chave] = estado.objeto

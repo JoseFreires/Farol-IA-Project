@@ -115,6 +115,33 @@ def test_entrada_exige_persistencia_e_cooldown_diferido():
     assert decisao.eventos[0].tipo == "ENTROU"
 
 
+def test_evento_de_baixa_relevancia_e_falado_apos_tempo_maximo():
+    inicial = ObjetoFake("person", "pessoa", "à frente", "perto", id_track=1)
+    estado = EstadoFake(ultimo_json=(inicial,))
+    baseline = identificar_mudanca((inicial,), estado, {}, 100)
+    estado.estado_mudanca = baseline.estado_mudanca
+    cadeira = ObjetoFake("chair", "cadeira", "à frente", "perto", id_track=2)
+    cfg = {
+        "cooldown_informativo_s": 0,
+        "limiar_score": 0.6,
+        "max_espera_evento_s": 2.5,
+        "pesos_classe": {"chair": 0.4},
+        "pesos_distancia": {"perto": 0.8},
+    }
+
+    pendente = identificar_mudanca((inicial, cadeira), estado, cfg, 101)
+    assert pendente.deve_falar is False
+    estado.estado_mudanca = pendente.estado_mudanca
+
+    antes_do_prazo = identificar_mudanca((inicial, cadeira), estado, cfg, 103.49)
+    assert antes_do_prazo.deve_falar is False
+    estado.estado_mudanca = antes_do_prazo.estado_mudanca
+
+    no_prazo = identificar_mudanca((inicial, cadeira), estado, cfg, 103.5)
+    assert no_prazo.deve_falar is True
+    assert no_prazo.motivo == "OBJETO_NOVO"
+
+
 def test_contexto_invalido_gera_evento_drastico():
     estado = EstadoFake(contexto_invalido=True)
     decisao = identificar_mudanca((), estado, {"cooldown_informativo_s": 0}, 100)

@@ -147,6 +147,7 @@ def executar(skill, variaveis, imagem=None, modo="", cancelar=None, chat=ollama.
     for chunk in chat(
         model=skill["model"],
         stream=True,
+        keep_alive="30m",
         options=skill.get("options", {}),
         messages=[{"role": "system", "content": skill["sistema"]}, msg],
     ):

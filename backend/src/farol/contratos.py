@@ -82,10 +82,17 @@ class MensagemSaida:
     deveFalar: bool = True
     interrompe: bool = False
     eventos: list[dict[str, Any]] | None = None
+    capturadoEm: float | None = None
 
     def expirada(self, agora: float | None = None) -> bool:
         agora = time.time() if agora is None else agora
-        return self.timestamp + (self.expiraEmMs / 1000.0) < agora
+        origem_ttl = self.capturadoEm if self.capturadoEm is not None else self.timestamp
+        return origem_ttl + (self.expiraEmMs / 1000.0) < agora
+
+    @property
+    def expira_em(self) -> float:
+        origem_ttl = self.capturadoEm if self.capturadoEm is not None else self.timestamp
+        return origem_ttl + (self.expiraEmMs / 1000.0)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -93,6 +100,7 @@ class MensagemSaida:
             "frameId": self.frameId,
             "timestamp": self.timestamp,
             "expiraEmMs": self.expiraEmMs,
+            "capturadoEm": self.capturadoEm,
             "prioridade": int(self.prioridade),
             "motivo": self.motivo.value if isinstance(self.motivo, Enum) else self.motivo,
             "origem": self.origem.value if isinstance(self.origem, Enum) else self.origem,

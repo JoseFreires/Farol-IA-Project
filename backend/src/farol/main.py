@@ -6,12 +6,13 @@ import threading
 import time
 from pathlib import Path
 
+import cv2
 import ollama
 import uvicorn
 import yaml
 
 from src.farol.captura import SlotFrame, capturar
-from src.farol.contexto import texto_eventos_python, vars_ambiente
+from src.farol.contexto import texto_eventos_python, texto_objetos, vars_ambiente
 from src.farol.contratos import Origem
 from src.farol.deteccao import DetectorCoco, DetectorDegraus, Percepcao
 from src.farol.api.servidor import Deps, criar_app
@@ -25,6 +26,7 @@ from src.farol.risco.identificar_risco import identificar_risco
 from src.farol.risco.trigger import deve_alertar, limpar_antigos, registrar_alerta
 from src.farol.sessao import EstadoRisco, Sessao
 from src.farol.skills import carregar, executar
+from src.farol.visualizacao import EstadoVisualizacao, mostrar_frame
 
 
 logger = logging.getLogger(__name__)
@@ -42,6 +44,41 @@ def _parse_fonte(valor: str | None):
     if valor.isdigit():
         return int(valor)
     return valor
+
+
+def _fim_fala_estimado(texto: str) -> float:
+    return time.time() + len(texto) * 0.07
+
+
+def _expira_ms_informativa(cfg: dict, decisao=None) -> int:
+    cfg_mensagens = cfg.get("mensagens", {})
+    if decisao is None:
+        return int(
+            cfg_mensagens.get(
+                "expira_ms_descricao_inicial",
+                cfg_mensagens.get("expira_ms_informativa", 4000),
+            )
+        )
+    if getattr(decisao, "motivo", None) == "OBJETO_NOVO":
+        return int(
+            cfg_mensagens.get(
+                "expira_ms_objeto_novo",
+                cfg_mensagens.get("expira_ms_informativa", 4000),
+            )
+        )
+    return int(cfg_mensagens.get("expira_ms_informativa", 4000))
+
+
+def _aquecer_modelo(modelo: str) -> None:
+    try:
+        ollama.chat(
+            model=modelo,
+            messages=[{"role": "user", "content": "ok"}],
+            options={"num_predict": 1},
+            keep_alive="30m",
+        )
+    except Exception:
+        logger.exception("aquecimento do modelo falhou modelo=%s", modelo)
 
 
 def _criar_percepcao(cfg: dict, fila_saida: FilaSaida) -> Percepcao:
@@ -72,7 +109,17 @@ def main() -> None:
     parser.add_argument("--frames", type=int, default=0, help="limite de frames para execução em vídeo; 0 = sem limite")
     parser.add_argument("--host", type=str, default="127.0.0.1", help="host da API")
     parser.add_argument("--port", type=int, default=8000, help="porta da API")
+    parser.add_argument(
+        "--visualizar",
+        action="store_true",
+        help="abre uma janela local com os frames analisados e as detecções",
+    )
     args = parser.parse_args()
+    visualizacao_ativa = args.visualizar
+    if visualizacao_ativa:
+        logger.info(
+            "visualizacao ao vivo ativada; pressione Q ou Esc na janela para fechar"
+        )
 
     cfg = _ler_cfg(args.config)
     logger.info(
@@ -92,8 +139,17 @@ def main() -> None:
     sessao = Sessao()
     estado_risco = EstadoRisco()
     skills = carregar(cfg.get("llm", {}).get("pasta_skills", "skills"))
+    modelo_descricao = skills.get("descrever-ambiente", {}).get("model")
+    if modelo_descricao:
+        threading.Thread(
+            target=_aquecer_modelo,
+            args=(modelo_descricao,),
+            name="T_aquecer_modelo",
+            daemon=True,
+        ).start()
     fila_llm = FilaLLM(chat=ollama.chat)
     fila_saida = FilaSaida()
+    estado_visualizacao = EstadoVisualizacao()
     cfg_degraus = cfg.get("yolo_degraus", {})
     percepcao = _criar_percepcao(cfg, fila_saida)
     estabilizador = Estabilizador()
@@ -131,6 +187,10 @@ def main() -> None:
     ultimo_frame_id = None
     ultimo_resumo_auditoria = time.monotonic()
     frames_desde_resumo = 0
+    processamento_fps = max(
+        1.0, float(cfg.get("api", {}).get("processamento_fps", 30))
+    )
+    intervalo_processamento = 1.0 / processamento_fps
     while not parar.is_set() and (args.frames == 0 or contador_frames < args.frames):
         requisicao = slot.proxima_requisicao()
         if requisicao is not None:
@@ -144,6 +204,8 @@ def main() -> None:
             if frame_id == ultimo_frame_id:
                 time.sleep(0.05)
                 continue
+        capturado_em = slot.timestamp(frame_id) or time.time()
+        inicio_processamento = time.monotonic()
         ultimo_frame_id = frame_id
         contador_frames += 1
 
@@ -188,12 +250,40 @@ def main() -> None:
                     expira_ms_risco=int(
                         cfg.get("mensagens", {}).get("expira_ms_risco", 3000)
                     ),
+                    capturado_em=capturado_em,
                 )
                 fila_saida.publicar(msg, interrompe=True)
+                estado_visualizacao.registrar_fala(msg.mensagem)
                 print(f"[Risco] {msg.mensagem}")
 
             cfg_filtro = {**cfg.get("filtro", {}), "largura": frame.shape[1], "altura": frame.shape[0]}
             base = montar_base(bruto, cfg_filtro, cfg_degraus)
+            if visualizacao_ativa:
+                resumo_objetos = texto_objetos(
+                    base, sessao.estado.riscos_alertados
+                )
+                tecla = None
+                try:
+                    tecla = mostrar_frame(
+                        frame,
+                        frame_id,
+                        bruto,
+                        risco_itens,
+                        resumo_objetos=resumo_objetos,
+                        fala=estado_visualizacao.ultima_fala(),
+                    )
+                except cv2.error:
+                    logger.exception(
+                        "visualizacao indisponivel; processamento continuará sem janela"
+                    )
+                    visualizacao_ativa = False
+                    try:
+                        cv2.destroyWindow("Farol - analise ao vivo")
+                    except cv2.error:
+                        logger.debug("janela de visualização não chegou a ser criada")
+                if tecla in (ord("q"), 27):
+                    visualizacao_ativa = False
+                    cv2.destroyWindow("Farol - analise ao vivo")
             tratados = estabilizador.atualizar(base, cfg.get("mudanca", {}))
             logger.debug(
                 "auditoria frame_processado frame_id=%d deteccoes=%d objetos_base=%d "
@@ -210,7 +300,7 @@ def main() -> None:
                 estado_mudanca = sessao.estado.estado_mudanca
                 logger.info(
                     "auditoria processamento resumo frame_id=%d frame_width=%d frame_height=%d "
-                    "quadros_processados=%d "
+                    "quadros_processados=%d fps_processamento=%.2f "
                     "deteccoes=%d objetos_base=%d objetos_estaveis=%d descricao_inicial_feita=%s "
                     "descricao_em_andamento=%s objetos_confirmados=%d candidatos=%d "
                     "eventos_pendentes=%d score_pendente=%.3f",
@@ -218,6 +308,7 @@ def main() -> None:
                     frame.shape[1],
                     frame.shape[0],
                     frames_desde_resumo,
+                    frames_desde_resumo / (agora_resumo - ultimo_resumo_auditoria),
                     len(bruto),
                     len(base),
                     len(tratados),
@@ -248,6 +339,7 @@ def main() -> None:
                     frame_id: int = frame_id,
                     revisao: int = revisao,
                     objetos: int = len(tratados),
+                    capturado_em: float = capturado_em,
                 ) -> None:
                     if sessao.estado.revisao_contexto != revisao:
                         return
@@ -258,18 +350,30 @@ def main() -> None:
                         texto,
                     )
                     print(f"[Farol] {texto}")
+                    estado_visualizacao.registrar_fala(texto)
                     sessao.atualizar(
                         ultima_descricao=texto,
                         descricao_inicial_feita=True,
                         descricao_em_andamento=False,
                         contexto_invalido=False,
+                        ultimo_ts_fala=_fim_fala_estimado(texto),
                     )
-                    fila_saida.publicar(msg_ambiente(texto, None, frame_id), interrompe=False)
+                    fila_saida.publicar(
+                        msg_ambiente(
+                            texto,
+                            None,
+                            frame_id,
+                            expira_ms_informativa=_expira_ms_informativa(cfg),
+                            capturado_em=capturado_em,
+                        ),
+                        interrompe=False,
+                    )
 
                 def ao_erro_inicial(
                     exc: Exception,
                     frame_id: int = frame_id,
                     revisao: int = revisao,
+                    capturado_em: float = capturado_em,
                 ) -> None:
                     if sessao.estado.revisao_contexto != revisao:
                         return
@@ -280,8 +384,12 @@ def main() -> None:
                         exc,
                     )
                     print(f"[Erro] {exc}")
+                    estado_visualizacao.registrar_fala(str(exc))
                     fila_saida.publicar(
-                        msg_erro(exc, frame_id=frame_id), interrompe=True
+                        msg_erro(
+                            exc, frame_id=frame_id, capturado_em=capturado_em
+                        ),
+                        interrompe=True,
                     )
 
                 concluir_tarefa = fila_saida.iniciar_tarefa_frame(frame_id)
@@ -304,7 +412,10 @@ def main() -> None:
                         exc,
                     )
                     fila_saida.publicar(
-                        msg_erro(exc, frame_id=frame_id), interrompe=True
+                        msg_erro(
+                            exc, frame_id=frame_id, capturado_em=capturado_em
+                        ),
+                        interrompe=True,
                     )
 
             if sessao.estado.descricao_inicial_feita:
@@ -350,6 +461,7 @@ def main() -> None:
                             frame_id: int = frame_id,
                             decisao=decisao,
                             revisao: int = sessao.estado.revisao_contexto,
+                            capturado_em: float = capturado_em,
                         ) -> None:
                             if sessao.estado.revisao_contexto != revisao:
                                 return
@@ -360,18 +472,32 @@ def main() -> None:
                                 texto,
                             )
                             print(f"[Mudanca] {texto}")
+                            estado_visualizacao.registrar_fala(texto)
                             sessao.atualizar(
                                 ultima_descricao=texto,
                                 contexto_invalido=False,
                                 descricao_em_andamento=False,
+                                ultimo_ts_fala=_fim_fala_estimado(texto),
                             )
-                            fila_saida.publicar(msg_ambiente(texto, decisao, frame_id), interrompe=False)
+                            fila_saida.publicar(
+                                msg_ambiente(
+                                    texto,
+                                    decisao,
+                                    frame_id,
+                                    expira_ms_informativa=_expira_ms_informativa(
+                                        cfg, decisao
+                                    ),
+                                    capturado_em=capturado_em,
+                                ),
+                                interrompe=False,
+                            )
 
                         def ao_erro_mudanca(
                             exc: Exception,
                             frame_id: int = frame_id,
                             decisao=decisao,
                             revisao: int = sessao.estado.revisao_contexto,
+                            capturado_em: float = capturado_em,
                         ) -> None:
                             if sessao.estado.revisao_contexto != revisao:
                                 return
@@ -386,8 +512,13 @@ def main() -> None:
                                 exc,
                             )
                             print(f"[Erro] {exc}")
+                            estado_visualizacao.registrar_fala(str(exc))
                             fila_saida.publicar(
-                                msg_erro(exc, frame_id=frame_id),
+                                msg_erro(
+                                    exc,
+                                    frame_id=frame_id,
+                                    capturado_em=capturado_em,
+                                ),
                                 interrompe=True,
                             )
 
@@ -423,6 +554,8 @@ def main() -> None:
                                         *decisao.estado_mudanca.eventos_pendentes,
                                     ]
                                     decisao.estado_mudanca.pendente_drastica = True
+                                    if decisao.estado_mudanca.primeiro_pendente_ts is None:
+                                        decisao.estado_mudanca.primeiro_pendente_ts = time.time()
                                 concluir_tarefa()
                         except Exception as exc:
                             concluir_tarefa()
@@ -431,7 +564,12 @@ def main() -> None:
                                 descricao_em_andamento=False,
                             )
                             fila_saida.publicar(
-                                msg_erro(exc, frame_id=frame_id), interrompe=True
+                                msg_erro(
+                                    exc,
+                                    frame_id=frame_id,
+                                    capturado_em=capturado_em,
+                                ),
+                                interrompe=True,
                             )
                     else:
                         texto = texto_eventos_python(
@@ -441,7 +579,7 @@ def main() -> None:
                             else set(),
                         )
                         if texto:
-                            sessao.atualizar(ultimo_ts_fala=time.time())
+                            sessao.atualizar(ultimo_ts_fala=_fim_fala_estimado(texto))
                             logger.info(
                                 "auditoria mudanca descrita frame_id=%d motivo=%s origem=python mensagem=%r",
                                 frame_id,
@@ -449,8 +587,18 @@ def main() -> None:
                                 texto,
                             )
                             print(f"[Mudanca] {texto}")
+                            estado_visualizacao.registrar_fala(texto)
                             fila_saida.publicar(
-                                msg_ambiente(texto, decisao, frame_id, origem=Origem.SOMENTE_YOLO),
+                                msg_ambiente(
+                                    texto,
+                                    decisao,
+                                    frame_id,
+                                    expira_ms_informativa=_expira_ms_informativa(
+                                        cfg, decisao
+                                    ),
+                                    origem=Origem.SOMENTE_YOLO,
+                                    capturado_em=capturado_em,
+                                ),
                                 interrompe=False,
                             )
 
@@ -462,12 +610,22 @@ def main() -> None:
                 exc,
             )
             print(f"[Erro] {exc}")
+            estado_visualizacao.registrar_fala(str(exc))
             fila_saida.publicar(
-                msg_erro(exc, frame_id=frame_id), interrompe=True
+                msg_erro(
+                    exc, frame_id=frame_id, capturado_em=capturado_em
+                ),
+                interrompe=True,
             )
         finally:
             fila_saida.finalizar_frame(frame_id)
-        time.sleep(0.05)
+        restante = intervalo_processamento - (
+            time.monotonic() - inicio_processamento
+        )
+        if restante > 0:
+            time.sleep(restante)
+    if visualizacao_ativa:
+        cv2.destroyWindow("Farol - analise ao vivo")
 
     if args.sem_api and not args.frames:
         print("[Farol] execução concluída; use Ctrl+C para encerrar.")

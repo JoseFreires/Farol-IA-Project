@@ -7,7 +7,7 @@ yolo_degraus:
   modelo: runs\detect\train-3\weights\best.pt
   conf_deteccao: 0.80
   imgsz: 480
-  a_cada_n_frames: 2
+  a_cada_n_frames: 1
   classes: [degrau]
   nomes_pt: { degrau: "escada" }
   margem_recorte: 0.25
@@ -20,7 +20,11 @@ filtro:
 mudanca:
   frames_para_entrar: 3 # Quantos quadros um objeto precisa aparecer consecutivamente para ser considerado
   frames_para_sair: 5 # Quantos frames consecutivos é necessário que o objeto não apareça mais para ser considerado ausente
+  tempo_para_entrar_s: 0.6 # Tempo mínimo de presença, além da quantidade mínima de quadros
+  min_quadros_para_entrar: 2
+  tempo_para_sair_s: 1.5 # Tempo sem detecção antes de considerar que o objeto saiu
   limiar_score: 0.6 # Valor que ao final dos cálculos de mudanças de objetos considerando seus respectivos pesos deve atingir para ser comunicado
+  max_espera_evento_s: 2.5 # Prazo máximo para comunicar eventos abaixo do limiar de score
   cooldown_informativo_s: 4 # Tempo em segundos de pausa entre uma fala informativa e outra
   fracao_drastica: 0.70 # Valor em % de mudança para que seja considerado drástico
   pesos_classe: { person: 1.0, car: 1.0, dog: 0.9, chair: 0.4 }
@@ -38,6 +42,8 @@ risco:
 
 mensagens:
   expira_ms_informativa: 4000 # tempo em milissegundos para a informação classificada como "INFORMATIVA" expirar e não ser mais comunicada, evitando que o usuário receba uma informação com delay
+  expira_ms_objeto_novo: 10000 # validade maior para eventos de entrada de objeto que aguardam a fala atual
+  expira_ms_descricao_inicial: 15000
   expira_ms_resposta: 8000 # tempo em milissegundos para a informação classificada como "REPOSTA_PERGUNTA" expirar e não ser mais comunicada, evitando que o usuário receba uma informação com delay
   expira_ms_risco: 3000
 
@@ -55,6 +61,7 @@ ocr:
 api:
   frame_max_bytes: 2000000 # rejeita frame maior que isso
   timeout_frames_s: 3 # sem frame por mais tempo que isso -> mensagem ERRO falada
+  processamento_fps: 30 # limite alvo de processamento; quadros excedentes são substituídos pelo mais recente
 
 pergunta:
   sempre_llm: false # true = toda pergunta vai ao Gemma (ignora o Caminho 1)

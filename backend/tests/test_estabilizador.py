@@ -44,3 +44,32 @@ def test_estabilizador_ignora_coco_sem_track():
     estabilizador = Estabilizador()
 
     assert estabilizador.atualizar([_objeto(track=None)], {"frames_para_entrar": 1}) == ()
+
+
+def test_estabilizador_confirma_entrada_por_tempo_e_minimo_de_quadros():
+    estabilizador = Estabilizador()
+    cadeira = _objeto()
+    cfg = {
+        "min_quadros_para_entrar": 2,
+        "tempo_para_entrar_s": 0.6,
+        "tempo_para_sair_s": 1.5,
+    }
+
+    assert estabilizador.atualizar([cadeira], cfg, agora=10.0) == ()
+    assert estabilizador.atualizar([cadeira], cfg, agora=10.2) == ()
+    assert estabilizador.atualizar([cadeira], cfg, agora=10.61) == (cadeira,)
+
+
+def test_estabilizador_confirma_saida_por_tempo_sem_depender_de_fps():
+    estabilizador = Estabilizador()
+    cadeira = _objeto()
+    cfg = {
+        "min_quadros_para_entrar": 1,
+        "tempo_para_entrar_s": 0,
+        "tempo_para_sair_s": 1.5,
+    }
+
+    assert estabilizador.atualizar([cadeira], cfg, agora=10.0) == (cadeira,)
+    assert estabilizador.atualizar([], cfg, agora=11.0) == (cadeira,)
+    assert estabilizador.atualizar([], cfg, agora=11.49) == (cadeira,)
+    assert estabilizador.atualizar([], cfg, agora=11.5) == ()
