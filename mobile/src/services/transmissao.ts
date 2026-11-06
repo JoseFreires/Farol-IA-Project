@@ -1,6 +1,13 @@
 import type { CameraView } from "expo-camera";
 import { urlServidor } from "./api";
 
+// Meta de envio; takePictureAsync e a rede determinam a taxa real.
+const FPS_ALVO = 60;
+const INTERVALO_FRAME_MS = 1000 / FPS_ALVO;
+const LIMITE_BUFFER_BYTES = 256_000;
+const ESPERA_CONGESTIONAMENTO_MS = 15;
+const ESPERA_MINIMA_FRAME_MS = 10;
+
 export type StatusTransmissao = "desconectado" | "conectando" | "transmitindo" | "erro";
 
 type OuvinteStatus = (status: StatusTransmissao) => void;
@@ -43,14 +50,12 @@ class ServicoTransmissao {
   private tentativaReconexao = 0;
   private ultimaFalhaCapturaLog = 0;
   private quadrosEnviados = 0;
+  private quadrosPulados = 0;
   private bytesEnviados = 0;
   private duracaoCapturaMs = 0;
   private inicioResumo = Date.now();
   private limiteFrameLog = 0;
 
-  private readonly INTERVALO_MS = 1000 / 30; // Meta de 30 quadros por segundo
-  private readonly LIMITE_BUFFER_BYTES = 256_000;
-  private readonly ESPERA_CONGESTIONAMENTO_MS = 15;
   private readonly MAX_BYTES = 2_000_000; // Limite padrão de 2 MB do backend
 
   public assinarStatus(cb: OuvinteStatus): () => void {
@@ -204,12 +209,14 @@ class ServicoTransmissao {
     }
 
     if (this.enviando) {
-      this.agendarProximoFrame(250);
+      this.quadrosPulados += 1;
+      this.agendarProximoFrame(ESPERA_MINIMA_FRAME_MS);
       return;
     }
 
-    if (this.socket.bufferedAmount > this.LIMITE_BUFFER_BYTES) {
-      this.agendarProximoFrame(this.ESPERA_CONGESTIONAMENTO_MS);
+    if (this.socket.bufferedAmount > LIMITE_BUFFER_BYTES) {
+      this.quadrosPulados += 1;
+      this.agendarProximoFrame(ESPERA_CONGESTIONAMENTO_MS);
       return;
     }
 
@@ -268,9 +275,11 @@ class ServicoTransmissao {
       this.enviando = false;
       if (geracao === this.geracao) {
         const duracao = Date.now() - inicio;
-        const espera = capturaFalhou ? 1000 : Math.max(0, this.INTERVALO_MS - duracao);
-        this.agendarProximoFrame(espera);
-      }
+          const espera = capturaFalhou
+            ? 1000
+            : Math.max(ESPERA_MINIMA_FRAME_MS, INTERVALO_FRAME_MS - duracao);
+          this.agendarProximoFrame(espera);
+        }
     }
   }
 
@@ -281,11 +290,14 @@ class ServicoTransmissao {
 
     console.info("Auditoria de frames mobile:", {
       quadros: this.quadrosEnviados,
+      quadrosPulados: this.quadrosPulados,
       bytes: this.bytesEnviados,
       fps: Number((this.quadrosEnviados / (intervalo / 1000)).toFixed(2)),
       capturaMediaMs: Math.round(this.duracaoCapturaMs / this.quadrosEnviados),
+      periodoMedioMs: Number((intervalo / this.quadrosEnviados).toFixed(1)),
     });
     this.quadrosEnviados = 0;
+    this.quadrosPulados = 0;
     this.bytesEnviados = 0;
     this.duracaoCapturaMs = 0;
     this.inicioResumo = agora;

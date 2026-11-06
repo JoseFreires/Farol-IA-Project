@@ -10,25 +10,17 @@ export function falar(texto: string) {
 
 // Fala o texto de forma assíncrona, sem travar o aplicativo
 export function falarAsync(texto: string, timeoutMs?: number): Promise<void> {
+  const limite = timeoutMs ?? Math.max(3500, texto.length * 90);
   return new Promise((resolve) => {
-    let finalizado = false;
+    let concluido = false;
     const concluir = () => {
-      if (!finalizado) {
-        finalizado = true;
-        clearTimeout(timer);
-        resolve();
-      }
+      if (concluido) return;
+      concluido = true;
+      clearTimeout(timer);
+      resolve();
     };
-
-    const limite = timeoutMs ?? Math.max(3500, texto.length * 90);
     const timer = setTimeout(concluir, limite);
-
-    Speech.speak(texto, {
-      ...opcoesFala(),
-      onDone: concluir,
-      onStopped: concluir,
-      onError: concluir,
-    });
+    gerenciadorFala.falarInstrucao(texto, false).then(concluir, concluir);
   });
 }
 
@@ -43,15 +35,6 @@ export async function estaFalando(): Promise<boolean> {
 
 export function parar() {
   gerenciadorFala.calar();
-}
-
-// Espera o app terminar de falar (usado para só voltar a escutar depois, sem ouvir a si mesmo)
-export async function aguardarFimDaFala(limiteMs = 10_000): Promise<void> {
-  const inicio = Date.now();
-  await new Promise((r) => setTimeout(r, 200));
-  while (Date.now() - inicio < limiteMs && (await estaFalando())) {
-    await new Promise((r) => setTimeout(r, 100));
-  }
 }
 
 export type VozInfo = { id: string; nome: string; melhorQualidade: boolean };
@@ -77,12 +60,22 @@ export function criarNarrador() {
       buffer += pedaco;
       let m: RegExpMatchArray | null;
       while ((m = buffer.match(/^([\s\S]*?[.!?])\s+/))) {
-        Speech.speak(m[1], opcoesFala());
+        gerenciadorFala.enfileirar({
+          texto: m[1],
+          prioridade: 3,
+          expiraEmMs: 4000,
+        });
         buffer = buffer.slice(m[0].length);
       }
     },
     finalizar() {
-      if (buffer.trim()) Speech.speak(buffer.trim(), opcoesFala());
+      if (buffer.trim()) {
+        gerenciadorFala.enfileirar({
+          texto: buffer.trim(),
+          prioridade: 3,
+          expiraEmMs: 4000,
+        });
+      }
       buffer = "";
     },
   };

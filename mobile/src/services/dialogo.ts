@@ -1,13 +1,12 @@
 import { motorEscuta } from "./escuta";
-import { aguardarFimDaFala } from "./fala";
 import { gerenciadorFala } from "./gerenciadorFala";
 
 // Fala uma instrução com prioridade de sistema, sem colidir com a escuta do app
-export async function dizer(texto: string): Promise<void> {
+export async function dizer(texto: string): Promise<boolean> {
   await motorEscuta.pausar();
-  gerenciadorFala.falarInstrucao(texto, true);
-  await aguardarFimDaFala(10_000);
-  await motorEscuta.retomar();
+  const terminou = await gerenciadorFala.falarInstrucao(texto, true);
+  if (terminou) await motorEscuta.retomar();
+  return terminou;
 }
 
 // Interrompe qualquer fala e devolve o microfone para a escuta da palavra "Farol"

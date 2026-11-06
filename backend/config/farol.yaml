@@ -61,7 +61,7 @@ ocr:
 api:
   frame_max_bytes: 2000000 # rejeita frame maior que isso
   timeout_frames_s: 3 # sem frame por mais tempo que isso -> mensagem ERRO falada
-  processamento_fps: 30 # limite alvo de processamento; quadros excedentes são substituídos pelo mais recente
+  processamento_fps: 60 # teto alvo; a detecção serial determina a taxa real
 
 pergunta:
   sempre_llm: false # true = toda pergunta vai ao Gemma (ignora o Caminho 1)

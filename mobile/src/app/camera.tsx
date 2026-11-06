@@ -105,7 +105,12 @@ export default function CameraScreen() {
 
 function TelaCameraContinua() {
   const cameraRef = useRef<CameraView>(null);
-  const { perguntarAgora, ouvindoPergunta } = useEscuta();
+  const {
+    perguntarAgora,
+    ouvindoPergunta,
+    concluirPergunta,
+    cancelarModoEscuta,
+  } = useEscuta();
   const e = useEstilos(criarEstilos);
 
   const [modalAberto, setModalAberto] = useState(false);
@@ -163,13 +168,14 @@ function TelaCameraContinua() {
   const pausarFluxoCamera = useCallback(() => {
     geracaoFluxoRef.current += 1;
     orientacaoEmAndamentoRef.current = false;
+    cancelarModoEscuta();
     if (!orientacaoConcluidaRef.current) {
       jaOrientou.current = false;
     }
     servicoTransmissao.parar();
     servicoMensagens.parar();
     calar();
-  }, []);
+  }, [cancelarModoEscuta]);
 
   // Escuta status da transmissão
   useEffect(() => {
@@ -256,6 +262,7 @@ function TelaCameraContinua() {
 
     try {
       const resposta = await enviarPergunta(pergunta);
+      await motorEscuta.pausar();
       setUltimaMensagem(resposta.texto);
       setPerguntaEmAndamento(null);
       gerenciadorFala.enfileirar({
@@ -264,6 +271,7 @@ function TelaCameraContinua() {
         interrompe: false,
         expiraEmMs: 8000,
         frameId: resposta.frameId ?? undefined,
+        aoTerminar: () => void concluirPergunta(),
       });
     } catch (err) {
       console.error("Erro ao enviar pergunta:", err);
@@ -273,10 +281,12 @@ function TelaCameraContinua() {
         prioridade: 1,
         interrompe: true,
         expiraEmMs: 5000,
+        motivo: "ERRO",
+        aoTerminar: () => void concluirPergunta(),
       });
       setPerguntaEmAndamento(null);
     }
-  }, []);
+  }, [concluirPergunta]);
 
   // Disparado quando o Vosk detecta pergunta pronta (após 2 segundos de silêncio ou dita junto de "Farol")
   useChamadaPorVoz(processarPergunta);

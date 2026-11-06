@@ -2,19 +2,27 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import random
 import time
 
 import cv2
 import websockets
 
 
-async def reproduzir(video: str, url: str, qualidade: int, loop: bool) -> None:
+async def reproduzir(
+    video: str,
+    url: str,
+    qualidade: int,
+    loop: bool,
+    fps: float | None = None,
+    jitter: float = 0.0,
+) -> None:
     cap = cv2.VideoCapture(video)
     if not cap.isOpened():
         raise FileNotFoundError(f"Não foi possível abrir o vídeo: {video}")
 
-    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
-    intervalo = 1.0 / max(fps, 1.0)
+    fps_video = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    intervalo = 1.0 / max(fps or fps_video, 1.0)
     enviados = 0
     proximo_frame = time.perf_counter()
     try:
@@ -36,7 +44,8 @@ async def reproduzir(video: str, url: str, qualidade: int, loop: bool) -> None:
                     raise RuntimeError(f"Falha ao codificar frame {enviados + 1}")
                 await websocket.send(jpeg.tobytes())
                 enviados += 1
-                proximo_frame += intervalo
+                variacao = random.uniform(1.0 - jitter, 1.0 + jitter)
+                proximo_frame += intervalo * variacao
                 await asyncio.sleep(max(0.0, proximo_frame - time.perf_counter()))
     finally:
         cap.release()
@@ -56,6 +65,17 @@ def main() -> None:
     )
     parser.add_argument("--jpeg-quality", type=int, default=80)
     parser.add_argument(
+        "--fps",
+        type=float,
+        help="taxa de envio; por padrão usa o FPS do vídeo",
+    )
+    parser.add_argument(
+        "--jitter",
+        type=float,
+        default=0.0,
+        help="variação proporcional aleatória do intervalo (0.1 = ±10%%)",
+    )
+    parser.add_argument(
         "--loop",
         action="store_true",
         help="reinicia o vídeo ao chegar ao fim, até interromper com Ctrl+C",
@@ -63,7 +83,20 @@ def main() -> None:
     args = parser.parse_args()
     if not 1 <= args.jpeg_quality <= 100:
         parser.error("--jpeg-quality deve estar entre 1 e 100")
-    asyncio.run(reproduzir(args.video, args.url, args.jpeg_quality, args.loop))
+    if args.fps is not None and args.fps <= 0:
+        parser.error("--fps deve ser maior que zero")
+    if not 0 <= args.jitter < 1:
+        parser.error("--jitter deve estar entre 0 e 1")
+    asyncio.run(
+        reproduzir(
+            args.video,
+            args.url,
+            args.jpeg_quality,
+            args.loop,
+            args.fps,
+            args.jitter,
+        )
+    )
 
 
 if __name__ == "__main__":

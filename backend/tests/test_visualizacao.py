@@ -57,15 +57,15 @@ def test_visualizacao_destaca_risco():
 def test_mostrar_frame_exibe_paineis_de_objetos_e_fala(monkeypatch):
     chamadas = []
     janelas = []
-    propriedades = []
+    tamanhos_janelas = []
     monkeypatch.setattr("src.farol.visualizacao._janela_criada", False)
     monkeypatch.setattr(
         "src.farol.visualizacao.cv2.namedWindow",
         lambda *args: janelas.append(args),
     )
     monkeypatch.setattr(
-        "src.farol.visualizacao.cv2.setWindowProperty",
-        lambda *args: propriedades.append(args),
+        "src.farol.visualizacao.cv2.resizeWindow",
+        lambda *args: tamanhos_janelas.append(args),
     )
     monkeypatch.setattr("src.farol.visualizacao.cv2.waitKey", lambda *_: -1)
     monkeypatch.setattr(
@@ -86,13 +86,7 @@ def test_mostrar_frame_exibe_paineis_de_objetos_e_fala(monkeypatch):
 
     assert tecla == 255
     assert janelas == [("Farol - analise ao vivo", cv2.WINDOW_NORMAL)]
-    assert propriedades == [
-        (
-            "Farol - analise ao vivo",
-            cv2.WND_PROP_FULLSCREEN,
-            cv2.WINDOW_FULLSCREEN,
-        )
-    ]
+    assert tamanhos_janelas == [("Farol - analise ao vivo", 400, 180)]
     assert np.any(chamadas[0][0:50] != 0)
     assert np.any(chamadas[0][-50:] != 0)
 

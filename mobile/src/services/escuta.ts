@@ -8,9 +8,12 @@ import { Platform } from "react-native";
 
 // Pasta do modelo de português dentro de assets/ (o nome PRECISA começar com "model-")
 export const MODELO = "model-pt-0.3";
+export const USAR_GRAMATICA_ATIVACAO = true;
+const AVALIAR_VOSK = typeof __DEV__ !== "undefined" && __DEV__;
 
 // Ativação por voz: "farol", tolerando pequenas variações fonéticas do modelo acústico offline
 const ATIVACAO = /\b(?:ei\s+)?(farol|faraó|varol|faroli)\b[\s,.!?:;-]*/i;
+const GRAMATICA_ATIVACAO = ["farol", "[unk]"];
 
 const SILENCIO_PERGUNTA_MS = 2000; // Tempo de silêncio para fechar a pergunta
 const TIMEOUT_SEGURANCA_PERGUNTA_MS = 30_000; // Limite máximo de segurança se não houver fala
@@ -53,6 +56,7 @@ export const escutaDisponivel = criarVosk !== null;
 
 // ---- Eventos que o motor dispara ------------------------------------------
 export type EventosEscuta = {
+  aoPossivelAtivacao: () => void;
   aoDetectarAtivacao: (perguntaImediata?: string) => void;
   aoPerguntaPronta: (pergunta: string) => void;
   aoExpirar: () => void;
@@ -176,6 +180,8 @@ export function criarMotorEscuta() {
   let timerSilencio: ReturnType<typeof setTimeout> | null = null;
   let timerSeguranca: ReturnType<typeof setTimeout> | null = null;
   let timerAtivacaoIsolada: ReturnType<typeof setTimeout> | null = null;
+  let ativacaoPendente = false;
+  let ativacaoConfirmada = false;
 
   let eventos: EventosEscuta | null = null;
 
@@ -198,6 +204,7 @@ export function criarMotorEscuta() {
     limparTimersPergunta();
     if (!coletandoPergunta) return;
     coletandoPergunta = false;
+    void definirGramaticaAtivacao(true);
 
     let textoCompleto = bufferPergunta.join(" ").trim();
     if (ultimoParcial) {
@@ -216,32 +223,27 @@ export function criarMotorEscuta() {
     }
   }
 
-  function iniciarColetaPergunta() {
+  function iniciarColetaPergunta(): Promise<void> {
     limparTimersPergunta();
     if (timerAtivacaoIsolada) {
       clearTimeout(timerAtivacaoIsolada);
       timerAtivacaoIsolada = null;
     }
     coletandoPergunta = true;
+    ativacaoPendente = false;
+    ativacaoConfirmada = false;
     bufferPergunta = [];
     ultimoParcial = "";
     pausado = false;
     ignorarAte = Date.now() + FOLGA_APOS_PAUSA_MS;
 
-    filaTransicao = filaTransicao.then(async () => {
-      if (rodando && vosk && !pausado) {
-        try {
-          await vosk.start();
-        } catch {
-          // se já ativo, ignorar
-        }
-      }
-    });
+    const transicao = definirGramaticaAtivacao(false);
 
     // Limite de segurança se ninguém falar nada
     timerSeguranca = setTimeout(() => {
       finalizarPergunta();
     }, TIMEOUT_SEGURANCA_PERGUNTA_MS);
+    return transicao;
   }
 
   function cancelarColetaPergunta() {
@@ -251,6 +253,8 @@ export function criarMotorEscuta() {
       timerAtivacaoIsolada = null;
     }
     coletandoPergunta = false;
+    ativacaoPendente = false;
+    ativacaoConfirmada = false;
     bufferPergunta = [];
     ultimoParcial = "";
   }
@@ -278,9 +282,14 @@ export function criarMotorEscuta() {
     // Modo de escuta passiva: aguardando a palavra "Farol" em tempo real
     const achou = texto.match(ATIVACAO);
     if (!achou) return;
+    if (ativacaoConfirmada) return;
+    if (!ativacaoPendente) {
+      ativacaoPendente = true;
+      eventos?.aoPossivelAtivacao();
+    }
 
     const resto = texto.slice((achou.index ?? 0) + achou[0].length).trim();
-    if (resto.length >= 2) {
+    if (!USAR_GRAMATICA_ATIVACAO && resto.length >= 2) {
       // Usuário já está falando a pergunta junto com a ativação: cancela ativação isolada
       if (timerAtivacaoIsolada) {
         clearTimeout(timerAtivacaoIsolada);
@@ -295,17 +304,21 @@ export function criarMotorEscuta() {
           const perguntaFinal = normalizarTranscricaoParaFarol(limparPrefixosPergunta(ultimoParcial));
           ultimoParcial = "";
           if (perguntaFinal.length >= 2) {
+            ativacaoPendente = false;
+            ativacaoConfirmada = true;
             eventos?.aoDetectarAtivacao(perguntaFinal);
           }
         }
       }, SILENCIO_PERGUNTA_MS);
-    } else {
+    } else if (!USAR_GRAMATICA_ATIVACAO) {
       // "Farol" detectado, mas a pessoa pode ainda estar completando a frase.
       // Agenda confirmação com debounce em vez de cortar a fala imediatamente.
       if (!timerAtivacaoIsolada) {
         timerAtivacaoIsolada = setTimeout(() => {
           timerAtivacaoIsolada = null;
           if (rodando && !pausado && !coletandoPergunta) {
+            ativacaoPendente = false;
+            ativacaoConfirmada = true;
             eventos?.aoDetectarAtivacao(undefined);
           }
         }, DEBOUNCE_ATIVACAO_ISOLADA_MS);
@@ -340,9 +353,20 @@ export function criarMotorEscuta() {
     }
 
     // Modo de escuta passiva no evento de resultado consolidado
+    if (ativacaoConfirmada) return;
     const achou = texto.match(ATIVACAO);
-    if (!achou) return;
+    if (!achou) {
+      if (AVALIAR_VOSK) {
+        console.info("[VOSK-AVAL] resultado_final sem_ativacao");
+      }
+      return;
+    }
 
+    ativacaoPendente = false;
+    ativacaoConfirmada = true;
+    if (AVALIAR_VOSK) {
+      console.info("[VOSK-AVAL] ativacao_confirmada");
+    }
     if (timerAtivacaoIsolada) {
       clearTimeout(timerAtivacaoIsolada);
       timerAtivacaoIsolada = null;
@@ -351,7 +375,7 @@ export function criarMotorEscuta() {
     const resto = texto.slice((achou.index ?? 0) + achou[0].length).trim();
     const restoNormalizado = normalizarTranscricaoParaFarol(limparPrefixosPergunta(resto));
 
-    if (restoNormalizado.length >= 2) {
+    if (!USAR_GRAMATICA_ATIVACAO && restoNormalizado.length >= 2) {
       // Pergunta já veio na mesma frase ("Farol, o que tem na frente?")
       eventos?.aoDetectarAtivacao(restoNormalizado);
     } else {
@@ -360,9 +384,45 @@ export function criarMotorEscuta() {
     }
   }
 
+  function definirGramaticaAtivacao(ativacao: boolean): Promise<void> {
+    filaTransicao = filaTransicao.then(async () => {
+      if (!USAR_GRAMATICA_ATIVACAO || !rodando || !vosk || pausado) return;
+      try {
+        await vosk.stop();
+        await vosk.start(
+          ativacao ? { grammar: GRAMATICA_ATIVACAO } : undefined,
+        );
+      } catch (erro) {
+        eventos?.aoErro(
+          erro instanceof Error
+            ? erro.message
+            : "Não foi possível alternar o modo de reconhecimento de voz.",
+        );
+      }
+    });
+    return filaTransicao;
+  }
+
+  function cancelarAtivacaoPendente() {
+    ativacaoPendente = false;
+    ativacaoConfirmada = false;
+    ultimoParcial = "";
+    if (timerAtivacaoIsolada) {
+      clearTimeout(timerAtivacaoIsolada);
+      timerAtivacaoIsolada = null;
+    }
+    if (timerSilencio) {
+      clearTimeout(timerSilencio);
+      timerSilencio = null;
+    }
+  }
+
   function aoResultadoFinal(bruto: unknown) {
     const texto = extrairTexto(bruto);
     if (texto) {
+      if (AVALIAR_VOSK) {
+        console.info("[VOSK-AVAL] resultado_final", { caracteres: texto.length });
+      }
       processarTextoFinal(texto);
     }
   }
@@ -411,7 +471,11 @@ export function criarMotorEscuta() {
         rodando = true;
         pausado = false;
         ignorarAte = Date.now() + FOLGA_APOS_PAUSA_MS;
-        await v.start();
+        await v.start(
+          USAR_GRAMATICA_ATIVACAO
+            ? { grammar: GRAMATICA_ATIVACAO }
+            : undefined,
+        );
       } catch (erro) {
         rodando = false;
         removerOuvintes();
@@ -488,7 +552,11 @@ export function criarMotorEscuta() {
     filaTransicao = filaTransicao.then(async () => {
       if (rodando && vosk && !pausado) {
         try {
-          await vosk.start();
+          await vosk.start(
+            USAR_GRAMATICA_ATIVACAO && !coletandoPergunta
+              ? { grammar: GRAMATICA_ATIVACAO }
+              : undefined,
+          );
         } catch {
           // ignorar
         }
@@ -498,8 +566,8 @@ export function criarMotorEscuta() {
   }
 
   // Aciona explicitamente o modo de pergunta (usado pelo botão ou gesto)
-  function perguntarAgora() {
-    iniciarColetaPergunta();
+  function perguntarAgora(): Promise<void> {
+    return iniciarColetaPergunta();
   }
 
   return {
@@ -512,6 +580,7 @@ export function criarMotorEscuta() {
     iniciarColetaPergunta,
     perguntarAgora,
     cancelarColetaPergunta,
+    cancelarAtivacaoPendente,
     estaRodando: () => rodando,
     estaColetandoPergunta: () => coletandoPergunta,
   };

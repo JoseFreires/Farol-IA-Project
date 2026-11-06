@@ -13,7 +13,7 @@ import { AppState, type AppStateStatus, PermissionsAndroid, Platform } from "rea
 
 import { escutaDisponivel, motorEscuta } from "../services/escuta";
 import { dizer } from "../services/dialogo";
-import { gerenciadorFala } from "../services/gerenciadorFala";
+import { gerenciadorFala, type ItemFala } from "../services/gerenciadorFala";
 import { vibrar } from "../services/vibracao";
 import { obterConfig } from "../settings/atual";
 import { useConfig } from "../settings/ConfiguracoesContext";
@@ -28,6 +28,8 @@ type Valor = {
   ouvindoPergunta: boolean;
   alternar: () => Promise<void>;
   perguntarAgora: () => Promise<void>;
+  concluirPergunta: () => Promise<void>;
+  cancelarModoEscuta: () => void;
   aoChamar: (cb: OuvinteChamada) => () => void;
 };
 
@@ -38,12 +40,16 @@ const VALOR_PADRAO: Valor = {
   ouvindoPergunta: false,
   alternar: async () => {},
   perguntarAgora: async () => {},
+  concluirPergunta: async () => {},
+  cancelarModoEscuta: () => {},
   aoChamar: () => () => {},
 };
 
 const Contexto = createContext<Valor>(VALOR_PADRAO);
 
 const MSG_INDISPONIVEL = "O reconhecimento de voz não está disponível neste aparelho.";
+const TEMPO_ALARME_FALSO_MS = 3000;
+const TEMPO_MAX_MODO_ESCUTA_MS = 45_000;
 
 export async function verificarPermissaoMicrofone(): Promise<boolean> {
   if (Platform.OS === "android") {
@@ -96,6 +102,70 @@ export function EscutaProvider({ children }: { children: ReactNode }) {
   const assinantes = useRef(new Set<OuvinteChamada>());
   const temporario = useRef(false);
   const voltarAoRetomar = useRef(false);
+  const timerAlarmeFalso = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timerSegurancaModo = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const geracaoModo = useRef(0);
+
+  const limparTimersModo = useCallback(() => {
+    if (timerAlarmeFalso.current) clearTimeout(timerAlarmeFalso.current);
+    if (timerSegurancaModo.current) clearTimeout(timerSegurancaModo.current);
+    timerAlarmeFalso.current = null;
+    timerSegurancaModo.current = null;
+  }, []);
+
+  const sairModoEscuta = useCallback(async () => {
+    limparTimersModo();
+    geracaoModo.current += 1;
+    motorEscuta.cancelarColetaPergunta();
+    motorEscuta.cancelarAtivacaoPendente();
+    setOuvindoPergunta(false);
+    await motorEscuta.pausar();
+    const informativaRetida = gerenciadorFala.sairModoEscuta(() => {
+      void motorEscuta.retomar();
+    });
+    if (!informativaRetida) await motorEscuta.retomar();
+  }, [limparTimersModo]);
+
+  const cancelarModoEscuta = useCallback(() => {
+    limparTimersModo();
+    geracaoModo.current += 1;
+    motorEscuta.cancelarColetaPergunta();
+    motorEscuta.cancelarAtivacaoPendente();
+    setOuvindoPergunta(false);
+    gerenciadorFala.calar();
+  }, [limparTimersModo]);
+
+  const entrarModoEscuta = useCallback(
+    (possivelAtivacao = false) => {
+      if (!gerenciadorFala.emModoEscuta) {
+        geracaoModo.current += 1;
+        const geracao = geracaoModo.current;
+        gerenciadorFala.entrarModoEscuta();
+        setOuvindoPergunta(true);
+        timerSegurancaModo.current = setTimeout(() => {
+          if (geracao !== geracaoModo.current) return;
+          void sairModoEscuta();
+        }, TEMPO_MAX_MODO_ESCUTA_MS);
+      }
+
+      if (possivelAtivacao) {
+        if (timerAlarmeFalso.current) clearTimeout(timerAlarmeFalso.current);
+        const geracao = geracaoModo.current;
+        timerAlarmeFalso.current = setTimeout(() => {
+          timerAlarmeFalso.current = null;
+          if (geracao !== geracaoModo.current) return;
+          if (typeof __DEV__ !== "undefined" && __DEV__) {
+            console.info("[VOSK-AVAL] possivel_ativacao_nao_confirmada");
+          }
+          void sairModoEscuta();
+        }, TEMPO_ALARME_FALSO_MS);
+      } else if (timerAlarmeFalso.current) {
+        clearTimeout(timerAlarmeFalso.current);
+        timerAlarmeFalso.current = null;
+      }
+    },
+    [sairModoEscuta],
+  );
 
   const iniciarMotor = useCallback(async () => {
     if (!escutaDisponivel) {
@@ -131,45 +201,91 @@ export function EscutaProvider({ children }: { children: ReactNode }) {
       }
     };
 
+    const tratarRiscoDuranteEscuta = (item: ItemFala) => {
+      const geracao = geracaoModo.current;
+      motorEscuta.cancelarColetaPergunta();
+      setOuvindoPergunta(false);
+      void motorEscuta.pausar().then(() => {
+        if (!gerenciadorFala.emModoEscuta || geracao !== geracaoModo.current) {
+          gerenciadorFala.falarPrioritariaDuranteEscuta(item);
+          return;
+        }
+        const risco = item.motivo === "RISCO";
+        gerenciadorFala.falarPrioritariaDuranteEscuta({
+          ...item,
+          aoTerminar: risco
+            ? () => {
+              if (!gerenciadorFala.emModoEscuta || geracao !== geracaoModo.current) return;
+              setOuvindoPergunta(true);
+              void dizer("Pode perguntar.").then(async (terminou) => {
+                if (terminou && gerenciadorFala.emModoEscuta && geracao === geracaoModo.current) {
+                  await motorEscuta.iniciarColetaPergunta();
+                }
+              });
+            }
+            : () => void sairModoEscuta(),
+        });
+      });
+    };
+
+    gerenciadorFala.definirTratadorRiscoDuranteEscuta(tratarRiscoDuranteEscuta);
     motorEscuta.definirEventos({
+      aoPossivelAtivacao: () => entrarModoEscuta(true),
       aoDetectarAtivacao: async (perguntaImediata) => {
+        entrarModoEscuta(false);
+        const geracao = geracaoModo.current;
         if (perguntaImediata) {
-          // Já veio a pergunta na mesma frase: envia direto
           vibrar.sucesso();
-          gerenciadorFala.interromperInformativas();
+          await motorEscuta.pausar();
+          if (geracao !== geracaoModo.current) return;
           assinantes.current.forEach((cb) => cb(perguntaImediata));
           encerrarTemporario();
         } else {
-          // Palavra "Farol" dita sozinha: interrompe descrição, pede a pergunta e só abre o mic após terminar de falar
           vibrar.confirmar();
-          gerenciadorFala.interromperInformativas();
           setOuvindoPergunta(true);
-          await dizer("Pode perguntar.");
-          motorEscuta.iniciarColetaPergunta();
+          const terminou = await dizer("Pode perguntar.");
+          if (terminou && gerenciadorFala.emModoEscuta && geracao === geracaoModo.current) {
+            await motorEscuta.iniciarColetaPergunta();
+          }
         }
       },
-      aoPerguntaPronta: (pergunta) => {
+      aoPerguntaPronta: async (pergunta) => {
         vibrar.sucesso();
         setOuvindoPergunta(false);
+        await motorEscuta.pausar();
         assinantes.current.forEach((cb) => cb(pergunta));
         encerrarTemporario();
       },
-      aoExpirar: () => {
+      aoExpirar: async () => {
+        await motorEscuta.pausar();
+        if (!gerenciadorFala.emModoEscuta) return;
         setOuvindoPergunta(false);
-        gerenciadorFala.falarInstrucao("Não ouvi a pergunta.", false);
+        gerenciadorFala.enfileirar({
+          texto: "Não ouvi a pergunta.",
+          prioridade: 2,
+          interrompe: false,
+          expiraEmMs: 6000,
+          aoTerminar: () => void sairModoEscuta(),
+          aoInterromper: () => {
+            if (!gerenciadorFala.emModoEscuta) void motorEscuta.retomar();
+          },
+        });
         encerrarTemporario();
       },
       aoErro: (mensagem) => {
         console.log("ERRO NA ESCUTA:", mensagem);
         setOuvindoPergunta(false);
+        if (gerenciadorFala.emModoEscuta) void sairModoEscuta();
       },
     });
 
     return () => {
       motorEscuta.definirEventos(null);
+      gerenciadorFala.definirTratadorRiscoDuranteEscuta(null);
+      limparTimersModo();
       motorEscuta.liberar();
     };
-  }, [pararMotor]);
+  }, [entrarModoEscuta, limparTimersModo, pararMotor, sairModoEscuta]);
 
   // Segue a preferência "assistente ligado"
   useEffect(() => {
@@ -207,6 +323,7 @@ export function EscutaProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const assinatura = AppState.addEventListener("change", async (situacao: AppStateStatus) => {
       if (situacao === "background") {
+        cancelarModoEscuta();
         if (temporario.current) temporario.current = false;
         else if (motorEscuta.estaRodando()) voltarAoRetomar.current = true;
         if (motorEscuta.estaRodando()) pararMotor();
@@ -225,12 +342,12 @@ export function EscutaProvider({ children }: { children: ReactNode }) {
       }
     });
     return () => assinatura.remove();
-  }, [config.escutaAtiva, iniciarMotor, pararMotor]);
+  }, [cancelarModoEscuta, config.escutaAtiva, iniciarMotor, pararMotor]);
 
   const alternar = useCallback(async () => {
     if (obterConfig().escutaAtiva) {
       atualizar({ escutaAtiva: false });
-      gerenciadorFala.calar();
+      cancelarModoEscuta();
       gerenciadorFala.falarInstrucao("Assistente de voz desligado.", true);
       return;
     }
@@ -250,7 +367,7 @@ export function EscutaProvider({ children }: { children: ReactNode }) {
     }
     atualizar({ escutaAtiva: true });
     gerenciadorFala.falarInstrucao("Assistente de voz ligado. Diga Farol para fazer uma pergunta.", true);
-  }, [atualizar]);
+  }, [atualizar, cancelarModoEscuta]);
 
   const perguntarAgora = useCallback(async () => {
     if (!escutaDisponivel) {
@@ -272,12 +389,19 @@ export function EscutaProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    entrarModoEscuta(false);
     vibrar.confirmar();
-    gerenciadorFala.interromperInformativas();
     setOuvindoPergunta(true);
-    await dizer("Pode perguntar.");
-    motorEscuta.perguntarAgora();
-  }, [iniciarMotor]);
+    const geracao = geracaoModo.current;
+    const terminou = await dizer("Pode perguntar.");
+    if (terminou && gerenciadorFala.emModoEscuta && geracao === geracaoModo.current) {
+      await motorEscuta.perguntarAgora();
+    }
+  }, [entrarModoEscuta, iniciarMotor]);
+
+  const concluirPergunta = useCallback(async () => {
+    await sairModoEscuta();
+  }, [sairModoEscuta]);
 
   const aoChamar = useCallback((cb: OuvinteChamada) => {
     assinantes.current.add(cb);
@@ -294,9 +418,11 @@ export function EscutaProvider({ children }: { children: ReactNode }) {
       ouvindoPergunta,
       alternar,
       perguntarAgora,
+      concluirPergunta,
+      cancelarModoEscuta,
       aoChamar,
     }),
-    [estado, config.escutaAtiva, permissaoNegada, ouvindoPergunta, alternar, perguntarAgora, aoChamar],
+    [estado, config.escutaAtiva, permissaoNegada, ouvindoPergunta, alternar, perguntarAgora, concluirPergunta, cancelarModoEscuta, aoChamar],
   );
 
   return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;

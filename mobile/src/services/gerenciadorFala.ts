@@ -15,7 +15,10 @@ export type ItemFala = {
   expiraEmMs?: number;
   timestamp?: number;
   frameId?: number;
+  motivo?: string;
   deveFalar?: boolean;
+  aoTerminar?: () => void;
+  aoInterromper?: () => void;
 };
 
 type OuvinteMensagem = (msg: ItemFala) => void;
@@ -37,6 +40,19 @@ class GerenciadorFala {
   private ultimaMensagemRelevante: ItemFala | null = null;
   private ouvintes: Set<OuvinteMensagem> = new Set();
   private timerFimFala: ReturnType<typeof setTimeout> | null = null;
+  private modoEscuta = false;
+  private informativaRetida: ItemFala | null = null;
+  private tratarRiscoDuranteEscuta: ((item: ItemFala) => void) | null = null;
+
+  public get emModoEscuta(): boolean {
+    return this.modoEscuta;
+  }
+
+  public definirTratadorRiscoDuranteEscuta(
+    tratar: ((item: ItemFala) => void) | null,
+  ) {
+    this.tratarRiscoDuranteEscuta = tratar;
+  }
 
   public assinar(ouvinte: OuvinteMensagem): () => void {
     this.ouvintes.add(ouvinte);
@@ -58,8 +74,9 @@ class GerenciadorFala {
     });
   }
 
-  public enfileirar(item: ItemFala) {
+  public enfileirar(item: ItemFala, riscoDuranteEscuta = false) {
     if (item.deveFalar === false || !item.texto?.trim()) {
+      item.aoInterromper?.();
       return;
     }
 
@@ -72,16 +89,36 @@ class GerenciadorFala {
 
     // Verifica se já chegou expirado
     if (this.estaExpirado(itemComTimestamp)) {
+      itemComTimestamp.aoInterromper?.();
       return;
     }
 
-    this.ultimaMensagemRelevante = itemComTimestamp;
+    if (
+      this.modoEscuta &&
+      itemComTimestamp.prioridade === 1 &&
+      !riscoDuranteEscuta &&
+      this.tratarRiscoDuranteEscuta
+    ) {
+      this.tratarRiscoDuranteEscuta(itemComTimestamp);
+      return;
+    }
+
+    this.ultimaMensagemRelevante = {
+      ...itemComTimestamp,
+      aoTerminar: undefined,
+      aoInterromper: undefined,
+    };
     this.notificarOuvintes(itemComTimestamp);
+
+    if (this.modoEscuta && itemComTimestamp.prioridade === 3) {
+      this.informativaRetida = itemComTimestamp;
+      return;
+    }
 
     // Prioridade 1 (Risco, erro crítico) ou interrompe: true
     if (itemComTimestamp.prioridade === 1 || itemComTimestamp.interrompe) {
       // Limpa descrições informativas pendentes da fila
-      this.fila = this.fila.filter((f) => f.prioridade === 1);
+      this.descartarDaFila((f) => f.prioridade !== 1);
 
       if (this.falando && this.itemAtual) {
         // Se o que está falando é menos prioritário ou se interrompe explicitamente
@@ -99,7 +136,7 @@ class GerenciadorFala {
     // Prioridade 2 (Resposta de pergunta ou instrução importante)
     if (itemComTimestamp.prioridade === 2) {
       // Remove da fila descrições informativas antigas
-      this.fila = this.fila.filter((f) => f.prioridade !== 3);
+      this.descartarDaFila((f) => f.prioridade === 3);
 
       if (this.falando && this.itemAtual) {
         if (this.itemAtual.prioridade === 3) {
@@ -144,17 +181,22 @@ class GerenciadorFala {
   }
 
   private interromperFalaAtual() {
+    this.geracaoFala += 1;
     if (this.timerFimFala) {
       clearTimeout(this.timerFimFala);
       this.timerFimFala = null;
     }
     Speech.stop();
+    this.itemAtual?.aoInterromper?.();
     this.falando = false;
     this.itemAtual = null;
   }
 
+  private geracaoFala = 0;
+
   private executarFala(item: ItemFala) {
     if (this.estaExpirado(item)) {
+      item.aoInterromper?.();
       this.proximo();
       return;
     }
@@ -162,14 +204,19 @@ class GerenciadorFala {
     this.interromperFalaAtual();
     this.falando = true;
     this.itemAtual = item;
+    const geracao = ++this.geracaoFala;
+    let finalizado = false;
 
     const aoTerminar = () => {
+      if (finalizado || geracao !== this.geracaoFala) return;
+      finalizado = true;
       if (this.timerFimFala) {
         clearTimeout(this.timerFimFala);
         this.timerFimFala = null;
       }
       this.falando = false;
       this.itemAtual = null;
+      item.aoTerminar?.();
       this.proximo();
     };
 
@@ -194,30 +241,82 @@ class GerenciadorFala {
         this.executarFala(candidato);
         return;
       }
+      candidato.aoInterromper?.();
     }
   }
 
   // Interrompe descrições informativas em andamento (chamado ao ouvir "Farol")
   public interromperInformativas() {
-    this.fila = this.fila.filter((f) => f.prioridade !== 3);
+    this.descartarDaFila((f) => f.prioridade === 3);
     if (this.falando && this.itemAtual && this.itemAtual.prioridade === 3) {
       this.interromperFalaAtual();
     }
   }
 
-  // Interrompe qualquer fala e limpa toda a fila
-  public calar() {
-    this.fila = [];
-    this.interromperFalaAtual();
+  private descartarDaFila(remover: (item: ItemFala) => boolean) {
+    const mantidos: ItemFala[] = [];
+    for (const item of this.fila) {
+      if (remover(item)) item.aoInterromper?.();
+      else mantidos.push(item);
+    }
+    this.fila = mantidos;
   }
 
-  public falarInstrucao(texto: string, interrompe = true) {
-    this.enfileirar({
-      texto,
-      prioridade: 2,
-      interrompe,
-      expiraEmMs: 6000,
-      deveFalar: true,
+  public entrarModoEscuta() {
+    if (this.modoEscuta) return;
+    this.modoEscuta = true;
+    this.informativaRetida = null;
+    this.descartarDaFila((item) => item.prioridade === 3);
+    if (this.falando && this.itemAtual?.prioridade === 3) {
+      this.interromperFalaAtual();
+    }
+  }
+
+  public sairModoEscuta(aoTerminarRetida?: () => void): boolean {
+    if (!this.modoEscuta) return false;
+    this.modoEscuta = false;
+    const retida = this.informativaRetida;
+    this.informativaRetida = null;
+    if (retida && !this.estaExpirado(retida)) {
+      this.enfileirar({
+        ...retida,
+        aoTerminar: () => {
+          retida.aoTerminar?.();
+          aoTerminarRetida?.();
+        },
+        aoInterromper: () => {
+          retida.aoInterromper?.();
+          aoTerminarRetida?.();
+        },
+      });
+      return true;
+    }
+    return false;
+  }
+
+  public falarPrioritariaDuranteEscuta(item: ItemFala) {
+    this.enfileirar(item, true);
+  }
+
+  // Interrompe qualquer fala e limpa toda a fila
+  public calar() {
+    this.descartarDaFila(() => true);
+    this.interromperFalaAtual();
+    this.modoEscuta = false;
+    this.informativaRetida = null;
+  }
+
+  public falarInstrucao(texto: string, interrompe = true): Promise<boolean> {
+    return new Promise((resolve) => {
+      this.enfileirar({
+        texto,
+        prioridade: 2,
+        interrompe,
+        expiraEmMs: 6000,
+        deveFalar: true,
+        aoTerminar: () => resolve(true),
+        aoInterromper: () => resolve(false),
+      });
     });
   }
 
@@ -244,4 +343,3 @@ class GerenciadorFala {
 }
 
 export const gerenciadorFala = new GerenciadorFala();
-

@@ -192,6 +192,7 @@ class ServicoMensagens {
         expiraEmMs,
         timestamp: timestampLocal,
         frameId: msg.frameId,
+        motivo: msg.motivo,
         deveFalar: true,
       });
     }

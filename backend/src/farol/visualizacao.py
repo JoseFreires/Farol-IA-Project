@@ -166,14 +166,14 @@ def mostrar_frame(
     fala: str = "",
 ) -> int:
     global _janela_criada
+    visualizacao = desenhar_deteccoes(frame, deteccoes, riscos, max_lado)
     if not _janela_criada:
         cv2.namedWindow(_TITULO_JANELA, cv2.WINDOW_NORMAL)
-        cv2.setWindowProperty(
-            _TITULO_JANELA, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN
+        cv2.resizeWindow(
+            _TITULO_JANELA, visualizacao.shape[1], visualizacao.shape[0]
         )
         _janela_criada = True
 
-    visualizacao = desenhar_deteccoes(frame, deteccoes, riscos, max_lado)
     cabecalho = f"Frame {frame_id} | {len(deteccoes)} deteccoes"
     if resumo_objetos:
         cabecalho = f"Objetos: {resumo_objetos} | {cabecalho}"
