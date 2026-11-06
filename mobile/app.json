@@ -4,7 +4,7 @@
     "slug": "farol",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/farol.png",
     "scheme": "mobile",
     "userInterfaceStyle": "dark",
     "ios": {
@@ -29,7 +29,7 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/farol.png"
     },
     "plugins": [
       "expo-router",
