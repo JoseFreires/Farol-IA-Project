@@ -1,148 +1,293 @@
-# Farol
+# 🔦 Farol
 
-Aplicativo móvel de acessibilidade que usa a câmera e um modelo de visão para descrever imagens em voz alta. O app Expo envia a foto para uma API FastAPI no computador; a API consulta o modelo local no Ollama e devolve uma resposta em JSON.
+> Tecnologia assistiva baseada em visão computacional e IA generativa para ampliar a autonomia, a segurança e a percepção ambiental de pessoas com deficiência visual.
 
-```text
-Celular (Expo) ── Wi-Fi ──> API FastAPI no computador ──> Ollama
+Projeto desenvolvido na **Fatec Zona Sul** para a disciplina de **Inteligência Artificial** (2º semestre de 2026), sob orientação do **Prof. Edson Ceroni**.
+
+> ⚠️ **Aviso:** o Farol é um auxílio e **não substitui** bengala ou cão-guia.
+
+---
+
+## 📑 Sumário
+
+- [Sobre o projeto](#-sobre-o-projeto)
+- [Como funciona](#-como-funciona)
+- [Arquitetura](#-arquitetura)
+- [Tecnologias](#-tecnologias)
+- [Elementos de IA utilizados](#-elementos-de-ia-utilizados)
+- [Regras de decisão](#-regras-de-decisão)
+- [Árvore de decisão](#-árvore-de-decisão)
+- [Quadro negro (estado da sessão)](#-quadro-negro-estado-da-sessão)
+- [Modelo de detecção de escadas](#-modelo-de-detecção-de-escadas)
+- [Acessibilidade da interface](#-acessibilidade-da-interface)
+- [Requisitos e compatibilidade](#-requisitos-e-compatibilidade)
+- [Instalação e execução](#-instalação-e-execução)
+- [Testes](#-testes)
+- [Equipe](#-equipe)
+
+---
+
+## 🎯 Sobre o projeto
+
+O **Farol** identifica objetos do cotidiano ao redor do usuário, informa **onde** eles estão (esquerda, frente, direita) e **a que distância aproximada**, alerta sobre situações de risco e responde, por voz, perguntas sobre o ambiente.
+
+**Domínio de conhecimento:** percepção do ambiente para pessoas com deficiência visual (baixa visão a cegueira), abrangendo:
+
+- identificação de objetos do cotidiano (80 classes COCO + escadas, treinadas pelo grupo);
+- posição em relação ao usuário e distância aproximada;
+- reconhecimento de situações de risco (veículos, objetos cortantes e escadas) e de mudanças no ambiente;
+- interpretação de perguntas em português sobre o que está ao redor.
+
+---
+
+## ⚙️ Como funciona
+
+O Farol é formado por um **aplicativo Android** (React Native/Expo) e um **servidor em Python** (FastAPI) que roda em um computador **na mesma rede Wi-Fi**.
+
+1. **Captura:** o app transmite continuamente os quadros da câmera para a API.
+2. **Detecção:** cada quadro passa por dois modelos YOLO: o `yolo26n` pré-treinado (objetos do cotidiano, base COCO) e um modelo treinado pelo grupo para detectar escadas.
+3. **Regras:** o código filtra as detecções por confiança e tamanho e calcula a posição (esquerda, frente, direita) e a distância aproximada de cada objeto.
+4. **Risco:** veículos, faca, tesoura e escadas geram alerta imediato (**"Atenção!"** ou **"Aviso"**), com prioridade máxima, interrompendo as outras falas e **sem depender da IA generativa**.
+5. **Descrição:** a descrição inicial do ambiente e as mudanças relevantes são narradas pelo modelo `qwen2.5vl:3b`, executado localmente pelo Ollama, que **só pode citar os objetos detectados pelo YOLO**.
+6. **Perguntas:** o usuário pergunta por voz (reconhecimento offline com Vosk). Perguntas simples ("tem...?", "onde está...?", "quantos...?") são respondidas por regras; cor, estado ou texto escrito vão para o modelo junto com a imagem.
+7. **Saída:** as respostas são faladas (`expo-speech`) em fila de prioridade (**risco > resposta > descrição**), com vibração de confirmação.
+
+---
+
+## 🏗️ Arquitetura
+
+```
+┌──────────────────────┐        Wi-Fi         ┌─────────────────────────────────────┐
+│  App Android         │ ───── quadros ─────▶ │  Servidor Python (FastAPI/Uvicorn)  │
+│  React Native / Expo │                      │                                     │
+│                      │                      │  YOLO (COCO) + YOLO (escadas)       │
+│  • Câmera            │                      │            │                        │
+│  • Vosk (voz offline)│                      │            ▼                        │
+│  • expo-speech (TTS) │ ◀──── respostas ──── │  Motor de regras (config/farol.yaml)│
+│  • expo-haptics      │                      │            │                        │
+└──────────────────────┘                      │            ▼                        │
+                                              │  Ollama · qwen2.5vl:3b (local)      │
+                                              └─────────────────────────────────────┘
 ```
 
-O projeto está em desenvolvimento. A interface mostra as opções Ambiente, Ler texto, Produto e Documento, mas a API atual escolhe a análise automaticamente; boletos e cédulas ainda aparecem como “Em breve”.
+---
 
-## Pré-requisitos
+## 🧰 Tecnologias
+
+**Aplicativo (Android)**
+
+- React e React Native
+- Expo (Expo Dev Client / EAS Build, SDK 58)
+- `expo-camera`
+- `react-native-vosk` (reconhecimento de voz offline)
+- `expo-speech` (síntese de voz)
+- `expo-haptics` (vibração)
+
+**Servidor**
 
 - Python 3.12
-- Node.js e npm
-- [Ollama](https://ollama.com/)
-- Um celular Android ou iPhone para testar. O celular e o computador precisam estar na mesma rede Wi-Fi.
+- FastAPI + Uvicorn
+- OpenCV
+- YOLO / Ultralytics
+- Ollama (Python) com o modelo `qwen2.5vl:3b`
 
-## 1. Preparar o modelo de IA
+**Ferramentas de desenvolvimento**
 
-Instale e abra o Ollama. No terminal, baixe o modelo usado por padrão pelo backend:
+- Visual Studio Code 1.144.1
+- Postman 12.33.4
+- Node.js
 
-```powershell
-ollama pull qwen2.5vl:7b
-ollama list
+---
+
+## 🧠 Elementos de IA utilizados
+
+| Elemento | Como é aplicado no Farol |
+| --- | --- |
+| **Poda** | Descarta detecções com confiança < 0,70 ou área < 1% do quadro e limita a fala a 8 objetos, eliminando o que é irrelevante antes de qualquer decisão. |
+| **Mecanismo de inferência** | Motor de regras em Python (risco, mudança no ambiente e roteador de perguntas) que aplica as regras sobre os fatos detectados para decidir o que falar e quando. |
+| **Encadeamento para frente** | Parte dos fatos para a conclusão: detecção → regra → ação. Ex.: faca com confiança ≥ 0,70 e perto → alerta "Atenção!". |
+| **Encadeamento para trás** | Nas perguntas, parte do objetivo ("tem uma cadeira?") e procura nos fatos detectados se ele é sustentado; se não for, responde que não detectou e pede para girar a câmera. |
+| **Sistema especialista** | O conhecimento sobre o que é perigoso ou relevante para uma pessoa com deficiência visual fica em uma base separada (`config/farol.yaml`), aplicada pelo motor de regras. |
+| **Sistema heurístico** | A distância é estimada pela área da caixa detectada; as mudanças recebem um score com pesos por classe e distância (limiar 0,6); o alerta é repetido se o objeto crescer 1,3x (aproximação). |
+| **Linguagem natural** | Reconhecimento de voz (Vosk), classificação da intenção da pergunta (contar, existe, localizar, atributo, geral), geração da resposta pelo modelo e síntese de voz em português. |
+| **Aprendizado supervisionado** | YOLO (`yolo26n`) treinado pelo grupo com imagens rotuladas de escadas. |
+| **Banco de conhecimentos** | `farol.yaml` (limiares, pesos, classes de risco), dicionário de classes em português, vocabulário das perguntas e os prompts das skills (`SKILL.md`). |
+| **Reconhecimento de padrão** | Detecção de objetos nas imagens pelas redes YOLO. |
+| **IA generativa** | Modelo de visão e linguagem `qwen2.5vl:3b` (Ollama) gera as descrições e respostas em português, restrito aos objetos detectados. |
+
+---
+
+## 📏 Regras de decisão
+
+O sistema possui **41 regras** de decisão:
+
+| Grupo | Qtde. |
+| --- | :---: |
+| Filtro de detecções | 4 |
+| Posição (3) e distância (3) | 6 |
+| Identificação de risco | 8 |
+| Repetição de alerta | 3 |
+| Intenção da pergunta | 5 |
+| Roteador de perguntas | 4 |
+| Mudança no ambiente | 6 |
+| Validade das mensagens | 5 |
+| **Total** | **41** |
+
+---
+
+## 🌳 Árvore de decisão
+
+```
+QUADRO DA CÂMERA
+│
+├─ Objeto de risco com conf. >= 0,70?
+│  ├─ Sim, perto (ou escada > 25% da tela)
+│  │   └─ "Atenção!" (interrompe a fala)
+│  ├─ Sim, longe (ou escada 10-25%)
+│  │   └─ "Aviso"
+│  └─ Já avisado? Só repete se aproximou
+│     1,3x ou se passaram 10 s
+│
+├─ Descrição inicial já feita?
+│  └─ Não -> IA descreve o ambiente
+│
+└─ Mudança: score >= 0,6 (ou espera > 2,5 s)?
+   ├─ Não -> silêncio
+   ├─ Drástica (>= 70%) -> IA descreve de novo
+   └─ Pequena -> anuncia o que entrou/saiu
+
+PERGUNTA POR VOZ
+│
+├─ Descrição inicial feita?
+│  └─ Não -> "Aguarde a primeira descrição"
+├─ Contar degraus?
+│  └─ "Não consigo informar a quantidade"
+├─ Atributo (cor, estado, texto) ou geral?
+│  └─ IA responde com a imagem
+└─ Contar / existe / localizar?
+   ├─ Objeto conhecido -> resposta por regra
+   └─ Senão -> IA responde com a imagem
 ```
 
-Mantenha o Ollama em execução enquanto usar o aplicativo. Por padrão, o backend o acessa em `http://localhost:11434`.
+---
 
-## 2. Instalar e iniciar o backend
+## 🗂️ Quadro negro (estado da sessão)
 
-No PowerShell, na pasta raiz do repositório:
+O estado da sessão funciona como um **quadro negro**: uma área compartilhada onde os módulos leem e escrevem.
 
-```powershell
-cd backend
-python --version
+- **Escrevem:**
+  - a percepção (YOLO) registra os objetos detectados com classe, posição e distância;
+  - o módulo de risco registra os alertas já emitidos (área e horário);
+  - o módulo de mudança registra eventos pendentes, score e objetos já anunciados;
+  - a descrição já falada fica guardada.
+- **Leem:** risco, mudança e roteador de perguntas consultam os objetos atuais para decidir.
+- **Controle:** duas filas com prioridade organizam o acesso:
+  - **FilaLLM:** único consumidor do modelo, com suporte a cancelamento;
+  - **FilaSaida:** controla prioridade e tempo de validade de cada mensagem falada.
+
+---
+
+## 🪜 Modelo de detecção de escadas
+
+Modelo `yolo26n` treinado pelo grupo com imagens rotuladas de escadas (aprendizado supervisionado):
+
+| Parâmetro | Valor |
+| --- | --- |
+| Imagens de treino | 159 |
+| Imagens de validação | 49 |
+| Épocas | 100 |
+| **Precisão** | **0,887** |
+| **Recall** | **0,540** |
+| **mAP50** | **0,589** |
+
+---
+
+## ♿ Acessibilidade da interface
+
+A interface foi pensada para quem não enxerga:
+
+- interação principal **por voz** (perguntas reconhecidas offline pelo Vosk);
+- respostas **faladas**, com velocidade e tom ajustáveis;
+- **fila de prioridade** para os alertas (risco sempre primeiro);
+- **vibração** de confirmação e de erro;
+- **tema escuro de alto contraste**;
+- tela de configurações.
+
+---
+
+## 💻 Requisitos e compatibilidade
+
+- **App:** Android 7.0 ou superior.
+- **Servidor:** computador com Python 3.12 e Ollama instalados, na **mesma rede Wi-Fi** do celular.
+- Modelo de linguagem: `qwen2.5vl:3b` (executado localmente via Ollama).
+
+---
+
+## 🚀 Instalação e execução
+
+> ℹ️ Ajuste os nomes de pastas e arquivos abaixo conforme a estrutura real do repositório.
+
+### 1. Clonar o repositório
+
+```bash
+git clone https://github.com/<usuario>/<repositorio>.git
+cd <repositorio>
+```
+
+### 2. Servidor (API)
+
+```bash
+# Criar e ativar o ambiente virtual (Python 3.12)
 python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
+
+# Instalar as dependências
+pip install -r requirements.txt
+
+# Baixar o modelo de visão e linguagem
+ollama pull qwen2.5vl:3b
+
+# Iniciar o servidor (acessível pela rede local)
+uvicorn main:app --host 0.0.0.0 --port 8000
 ```
 
-Se a ativação do ambiente virtual for bloqueada pelo PowerShell, permita scripts apenas nessa janela e tente novamente:
+### 3. Aplicativo (Android)
 
-```powershell
-Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
-.\.venv\Scripts\Activate.ps1
+```bash
+cd app
+npm install
+
+# Gerar o Dev Client (EAS Build) e instalar no aparelho
+eas build --profile development --platform android
+
+# Iniciar o bundler
+npx expo start --dev-client
 ```
 
-Crie `backend/.env` (na mesma pasta em que está `requirements.txt`) com um token escolhido por você:
+Em seguida, configure no app o **endereço IP do computador** que executa o servidor (ex.: `http://192.168.0.10:8000`).
 
-```dotenv
-APP_TOKEN=troque-por-um-token-de-desenvolvimento
-OLLAMA_MODEL=qwen2.5vl:7b
+---
+
+## ✅ Testes
+
+O projeto conta com **14 arquivos de testes automatizados** (`pytest`) e com **vídeos gravados** (pasta `gravacoes`) que são reproduzidos na API, permitindo testes repetíveis do fluxo completo.
+
+```bash
+pytest
 ```
 
-`APP_TOKEN` é obrigatório. O modelo já tem esse valor padrão; a linha está incluída para deixar a configuração explícita. Opcionalmente, também é possível configurar `OLLAMA_HOST` e `OLLAMA_KEEP_ALIVE`.
+---
 
-Ainda dentro de `backend/`, inicie a API:
+## 👥 Equipe
 
-```powershell
-python -m src.farol.main --host 0.0.0.0 --port 8000
-```
+**Grupo: SEXTETO SINISTRO**
 
-Confirme no navegador do computador:
+- Caio Henrique Arruda Moreira
+- José Guilherme Silva Freires
+- Luiz Carlos Alves Freire
+- Rafael Camilo Pradal
+- Rafael Mota Silva
+- Rian Almeida da Silva
 
-- `http://localhost:8000/health` deve retornar `{"ok":true}`.
-- `http://localhost:8000/docs` abre a documentação da API.
-
-O teste `/health` confirma que a API está no ar, mas não testa o Ollama. Se uma análise falhar, confirme também que `ollama list` mostra `qwen2.5vl:7b`.
-
-## 3. Configurar e iniciar o aplicativo
-
-Abra outro terminal na raiz do repositório e descubra o IP do computador na rede Wi-Fi:
-
-```powershell
-ipconfig
-```
-
-Use o endereço IPv4 do adaptador conectado à rede (por exemplo, `192.168.0.10`). Crie `mobile/.env`, ao lado de `package.json`:
-
-```dotenv
-EXPO_PUBLIC_API_URL=http://192.168.0.10:8000
-EXPO_PUBLIC_APP_TOKEN=troque-por-um-token-de-desenvolvimento
-```
-
-O token deve ser igual ao `APP_TOKEN` de `backend/.env`. Não use `localhost` no endereço do celular: nesse caso ele apontaria para o próprio celular. Em um emulador Android, use `http://10.0.2.2:8000`.
-
-Instale as dependências do app e inicie o Expo:
-
-```powershell
-cd mobile
-npm ci
-npx expo start -c
-```
-
-Abra o projeto no Expo Go compatível com o SDK 57 e escaneie o QR code. No iPhone físico, entre com a mesma conta Expo no Expo Go e no computador. Se o Expo Go indicar incompatibilidade, atualize-o ou use um development build compatível.
-
-No app, também é possível abrir **Configurações**, informar o endereço do servidor e tocar em **Salvar e testar conexão**. Essa opção substitui o endereço padrão informado em `mobile/.env`.
-
-> `EXPO_PUBLIC_APP_TOKEN` é incorporado ao app e não é segredo seguro. Use apenas um token de desenvolvimento; não exponha a API publicamente.
-
-## Uso diário
-
-1. Deixe o Ollama em execução no computador.
-2. Em um terminal, ative o ambiente e inicie o backend:
-   ```powershell
-   cd backend
-   .\.venv\Scripts\Activate.ps1
-   python -m src.farol.main --host 0.0.0.0 --port 8000
-   ```
-3. Em outro terminal, inicie o app:
-   ```powershell
-   cd mobile
-   npx expo start
-   ```
-4. Abra o app no celular e permita o acesso à câmera.
-
-## Solução de problemas
-
-| Sintoma | O que conferir |
-|---|---|
-| Erro de configuração ao iniciar a API | `backend/.env` existe e contém `APP_TOKEN`; o comando foi executado a partir de `backend/`. |
-| `No module named ...` ou `uvicorn` não encontrado | O ambiente virtual está ativado e `python -m pip install -r requirements.txt` terminou sem erros. |
-| A API abre no computador, mas não no celular | Celular e computador estão na mesma rede; o endereço usa o IPv4 do computador; o Firewall do Windows permite conexões TCP na porta 8000 para a rede privada. |
-| Erro 401 no app | `EXPO_PUBLIC_APP_TOKEN` e `APP_TOKEN` são iguais. Reinicie o Expo após mudar o `.env`. |
-| Erro ao analisar a imagem | Ollama está em execução e o modelo configurado já foi baixado. |
-| O app não encontra o servidor depois de mudar o `.env` | Pare e reinicie o Expo com `npx expo start -c`. |
-| Expo Go informa incompatibilidade | O projeto usa Expo SDK 57; atualize o Expo Go ou use um development build compatível. |
-
-O reconhecimento de perguntas por voz depende de um módulo nativo e não está disponível no Expo Go. O menu de boletos e cédulas ainda é apenas uma indicação de funcionalidade futura.
-
-## Estrutura atual
-
-```text
-backend/
-  app/                 # API FastAPI e processamento
-  agent_runtime/       # execução das análises com Ollama
-  core/ rules/         # comparação visual e regras
-  skills/              # instruções das análises
-  tests/               # testes do backend
-  requirements.txt
-mobile/
-  src/app/             # telas Expo Router
-  src/services/        # API, fala e vibração
-  package.json
-  app.json
-```
-
-Veja [backend/ARQUITETURA_TECNICA.md](backend/ARQUITETURA_TECNICA.md) para detalhes técnicos. Para executar os testes do backend, use o ambiente virtual ativado e rode `pytest` dentro de `backend/`.
+**Instituição:** Fatec Zona Sul — Disciplina de Inteligência Artificial (2º sem. 2026)
+**Professor:** Edson Ceroni
