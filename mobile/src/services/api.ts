@@ -1,5 +1,3 @@
-import { fetch as streamFetch } from "expo/fetch"; // fetch com suporte a streaming
-
 import { obterConfig } from "../settings/atual";
 import { normalizarUrl } from "../settings/tipos";
 
@@ -12,65 +10,49 @@ export function urlServidor(): string {
   return normalizarUrl(obterConfig().servidorUrl) || URL_PADRAO;
 }
 
-const cabecalhos = {
-  "Content-Type": "application/json",
-  Authorization: `Bearer ${TOKEN}`,
+export function cabecalhosAutorizacao(): Record<string, string> {
+  return TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {};
+}
+
+export type RespostaPergunta = {
+  frameId: number | null;
+  texto: string;
 };
 
-export type Modo = "ambiente" | "texto" | "produto" | "documento";
-export type Mensagem = { role: "user" | "assistant"; texto: string };
+// Identificador único de sessão usado em todas as chamadas ao servidor
+export const SESSION_ID = "mobile-session";
 
-type Params = {
-  imagemBase64: string;
-  modo: Modo;
-  pergunta?: string;
-  historico?: Mensagem[];
-  onTexto: (pedaco: string) => void;
-};
-
-export async function descrever({
-  imagemBase64,
-  modo,
-  pergunta,
-  historico = [],
-  onTexto,
-}: Params): Promise<void> {
+// Envia pergunta em texto usando o último contexto visual já mantido pelo backend
+export async function enviarPergunta(texto: string): Promise<RespostaPergunta> {
   const base = urlServidor();
   if (!base) throw new Error("Endereço do servidor não configurado.");
 
-  const resp = await streamFetch(`${base}/descrever`, {
+  const resposta = await fetch(`${base}/pergunta`, {
     method: "POST",
-    headers: cabecalhos,
-    body: JSON.stringify({
-      imagem_base64: imagemBase64,
-      modo,
-      pergunta,
-      historico,
-      detalhe: obterConfig().detalhe,
-    }),
+    headers: {
+      "Content-Type": "application/json",
+      ...cabecalhosAutorizacao(),
+    },
+    body: JSON.stringify({ texto }),
   });
-  if (!resp.ok || !resp.body) throw new Error(`Erro ${resp.status}`);
 
-  const reader = resp.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    const eventos = buffer.split("\n\n");
-    buffer = eventos.pop() ?? "";
-
-    for (const ev of eventos) {
-      const dado = ev.replace(/^data: /, "").trim();
-      if (!dado || dado === "[FIM]") continue;
-      const json = JSON.parse(dado);
-      if (json.erro) throw new Error(json.erro);
-      if (json.texto) onTexto(json.texto);
-    }
+  if (!resposta.ok) {
+    const detalhe = await resposta.text().catch(() => "");
+    throw new Error(`Erro ao enviar pergunta (${resposta.status}): ${detalhe}`);
   }
+
+  const dados: unknown = await resposta.json();
+  if (
+    !dados ||
+    typeof dados !== "object" ||
+    !("texto" in dados) ||
+    typeof dados.texto !== "string" ||
+    !("frameId" in dados) ||
+    (typeof dados.frameId !== "number" && dados.frameId !== null)
+  ) {
+    throw new Error("Resposta inválida do servidor ao processar a pergunta.");
+  }
+  return { frameId: dados.frameId, texto: dados.texto };
 }
 
 // Chama /health com limite de tempo. Aceita um endereço para testar antes de salvar.
@@ -81,28 +63,14 @@ export async function testarConexao(url?: string, tempoMs = 4000): Promise<boole
   const controle = new AbortController();
   const timer = setTimeout(() => controle.abort(), tempoMs);
   try {
-    const resp = await fetch(`${base}/health`, { signal: controle.signal });
+    const resp = await fetch(`${base}/health`, {
+      headers: cabecalhosAutorizacao(),
+      signal: controle.signal,
+    });
     return resp.ok;
   } catch {
     return false;
   } finally {
     clearTimeout(timer);
   }
-}
-
-export type ResultadoBoleto =
-  | { valido: true; valor: number; vencimento: string | null; banco: string }
-  | { valido: false; motivo: string };
-
-export async function validarBoleto(codigo: string): Promise<ResultadoBoleto> {
-  const base = urlServidor();
-  if (!base) throw new Error("Endereço do servidor não configurado.");
-
-  const resp = await fetch(`${base}/boleto/validar`, {
-    method: "POST",
-    headers: cabecalhos,
-    body: JSON.stringify({ codigo }),
-  });
-  if (!resp.ok) throw new Error(`Erro ${resp.status}`);
-  return resp.json();
 }

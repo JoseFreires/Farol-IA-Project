@@ -1,27 +1,40 @@
 import * as Speech from "expo-speech";
 
-import { obterConfig } from "../settings/atual";
-import { TAXA_FALA, TOM_VOZ } from "../settings/tipos";
+import { gerenciadorFala, opcoesFala } from "./gerenciadorFala";
 
-const IDIOMA = "pt-BR";
-
-// Monta as opções a cada fala, lendo a configuração em vigor
-function opcoes(): Speech.SpeechOptions {
-  const c = obterConfig();
-  return {
-    language: IDIOMA,
-    rate: TAXA_FALA[c.velocidadeFala],
-    pitch: TOM_VOZ[c.tomVoz],
-    ...(c.vozId ? { voice: c.vozId } : {}),
-  };
-}
+export { opcoesFala };
 
 export function falar(texto: string) {
-  Speech.speak(texto, opcoes());
+  gerenciadorFala.falarInstrucao(texto, false);
+}
+
+// Fala o texto de forma assíncrona, sem travar o aplicativo
+export function falarAsync(texto: string, timeoutMs?: number): Promise<void> {
+  const limite = timeoutMs ?? Math.max(3500, texto.length * 90);
+  return new Promise((resolve) => {
+    let concluido = false;
+    const concluir = () => {
+      if (concluido) return;
+      concluido = true;
+      clearTimeout(timer);
+      resolve();
+    };
+    const timer = setTimeout(concluir, limite);
+    gerenciadorFala.falarInstrucao(texto, false).then(concluir, concluir);
+  });
+}
+
+export async function estaFalando(): Promise<boolean> {
+  try {
+    const nativoFalando = await Speech.isSpeakingAsync();
+    return gerenciadorFala.estaFalando() || nativoFalando;
+  } catch {
+    return gerenciadorFala.estaFalando();
+  }
 }
 
 export function parar() {
-  Speech.stop();
+  gerenciadorFala.calar();
 }
 
 export type VozInfo = { id: string; nome: string; melhorQualidade: boolean };
@@ -47,12 +60,22 @@ export function criarNarrador() {
       buffer += pedaco;
       let m: RegExpMatchArray | null;
       while ((m = buffer.match(/^([\s\S]*?[.!?])\s+/))) {
-        Speech.speak(m[1], opcoes());
+        gerenciadorFala.enfileirar({
+          texto: m[1],
+          prioridade: 3,
+          expiraEmMs: 4000,
+        });
         buffer = buffer.slice(m[0].length);
       }
     },
     finalizar() {
-      if (buffer.trim()) Speech.speak(buffer.trim(), opcoes());
+      if (buffer.trim()) {
+        gerenciadorFala.enfileirar({
+          texto: buffer.trim(),
+          prioridade: 3,
+          expiraEmMs: 4000,
+        });
+      }
       buffer = "";
     },
   };

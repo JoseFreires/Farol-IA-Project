@@ -1,7 +1,9 @@
+import { useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { cores, espaco, fonte, raio } from "../theme/tema";
+import { useConfig } from "../settings/ConfiguracoesContext";
+import { espaco, fonte, raio, type PaletaCores } from "../theme/tema";
 
 export type Opcao<T extends string> = { valor: T; rotulo: string };
 
@@ -21,6 +23,9 @@ export function LinhaOpcoes<T extends string>({
   valor,
   onChange,
 }: Props<T>) {
+  const { cores, config } = useConfig();
+  const e = useMemo(() => criarEstilos(cores, config.altoContraste), [cores, config.altoContraste]);
+
   return (
     <View style={e.bloco}>
       <Text style={e.titulo}>{titulo}</Text>
@@ -54,23 +59,46 @@ export function LinhaOpcoes<T extends string>({
   );
 }
 
-const e = StyleSheet.create({
-  bloco: { gap: espaco.sm },
-  titulo: { color: cores.textoPrincipal, fontSize: fonte.corpo, fontWeight: "700" },
-  descricao: { color: cores.textoSecundario, fontSize: fonte.pequeno, lineHeight: 21 },
-  opcoes: { flexDirection: "row", flexWrap: "wrap", gap: espaco.sm },
-  opcao: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    minHeight: 52,
-    paddingHorizontal: espaco.md,
-    borderRadius: raio.pill,
-    borderWidth: 2,
-    borderColor: cores.borda,
-    backgroundColor: "transparent",
-  },
-  opcaoMarcada: { backgroundColor: cores.luz, borderColor: cores.luz },
-  rotulo: { color: cores.textoPrincipal, fontSize: fonte.pequeno + 1, fontWeight: "600" },
-  rotuloMarcado: { color: cores.textoSobreLuz, fontWeight: "800" },
-});
+function criarEstilos(cores: PaletaCores, altoContraste: boolean) {
+  const eClaro = cores.modo === "claro";
+
+  return StyleSheet.create({
+    bloco: { gap: espaco.sm },
+    titulo: {
+      color: cores.textoPrincipal,
+      fontSize: fonte.corpo,
+      fontWeight: altoContraste ? "800" : "700",
+    },
+    descricao: {
+      color: cores.textoSecundario,
+      fontSize: fonte.pequeno,
+      lineHeight: 21,
+      fontWeight: altoContraste ? "600" : "400",
+    },
+    opcoes: { flexDirection: "row", flexWrap: "wrap", gap: espaco.sm },
+    opcao: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      minHeight: 52,
+      paddingHorizontal: espaco.md,
+      borderRadius: raio.pill,
+      borderWidth: altoContraste ? 3 : 2,
+      borderColor: cores.borda,
+      backgroundColor: eClaro ? cores.superficie : "transparent",
+    },
+    opcaoMarcada: {
+      backgroundColor: cores.luz,
+      borderColor: eClaro ? cores.luzForte : cores.luz,
+    },
+    rotulo: {
+      color: cores.textoPrincipal,
+      fontSize: fonte.pequeno + 1,
+      fontWeight: altoContraste ? "700" : "600",
+    },
+    rotuloMarcado: {
+      color: cores.textoSobreLuz,
+      fontWeight: "800",
+    },
+  });
+}

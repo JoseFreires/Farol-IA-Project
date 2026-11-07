@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -17,20 +17,24 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { Botao } from "../components/Botao";
 import { LinhaOpcoes } from "../components/LinhaOpcoes";
 import { LinhaSwitch } from "../components/LinhaSwitch";
+import { useEscuta } from "../escuta/EscutaContext";
 import { testarConexao, URL_PADRAO } from "../services/api";
-import { falar, listarVozes, parar, type VozInfo } from "../services/fala";
+import { falar, parar } from "../services/fala";
 import { vibrar } from "../services/vibracao";
 import { useConfig } from "../settings/ConfiguracoesContext";
 import {
   normalizarUrl,
-  type Detalhe,
-  type QualidadeFoto,
-  type TomVoz,
+  type ModoTema,
   type VelocidadeFala,
 } from "../settings/tipos";
-import { cores, espaco, fonte, raio } from "../theme/tema";
+import { espaco, fonte, raio, type PaletaCores } from "../theme/tema";
 
 type Item<T extends string> = { valor: T; rotulo: string };
+
+const TEMAS: Item<ModoTema>[] = [
+  { valor: "escuro", rotulo: "Escuro" },
+  { valor: "claro", rotulo: "Claro" },
+];
 
 const VELOCIDADES: Item<VelocidadeFala>[] = [
   { valor: "lenta", rotulo: "Lenta" },
@@ -39,32 +43,26 @@ const VELOCIDADES: Item<VelocidadeFala>[] = [
   { valor: "muitoRapida", rotulo: "Muito rápida" },
 ];
 
-const TONS: Item<TomVoz>[] = [
-  { valor: "grave", rotulo: "Grave" },
-  { valor: "normal", rotulo: "Normal" },
-  { valor: "agudo", rotulo: "Agudo" },
-];
 
-const DETALHES: Item<Detalhe>[] = [
-  { valor: "resumo", rotulo: "Resumo" },
-  { valor: "normal", rotulo: "Normal" },
-  { valor: "completo", rotulo: "Completo" },
-];
-
-const QUALIDADES: Item<QualidadeFoto>[] = [
-  { valor: "rapida", rotulo: "Rápida" },
-  { valor: "equilibrada", rotulo: "Equilibrada" },
-  { valor: "detalhada", rotulo: "Detalhada" },
-];
 
 function rotuloDe<T extends string>(lista: Item<T>[], valor: T): string {
   return lista.find((i) => i.valor === valor)?.rotulo.toLowerCase() ?? "";
 }
 
-function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
+function Secao({
+  titulo,
+  children,
+  estiloSecao,
+  estiloTitulo,
+}: {
+  titulo: string;
+  children: ReactNode;
+  estiloSecao?: object;
+  estiloTitulo?: object;
+}) {
   return (
-    <View style={e.secao}>
-      <Text accessibilityRole="header" style={e.tituloSecao}>
+    <View style={estiloSecao}>
+      <Text accessibilityRole="header" style={estiloTitulo}>
         {titulo}
       </Text>
       {children}
@@ -74,17 +72,16 @@ function Secao({ titulo, children }: { titulo: string; children: ReactNode }) {
 
 export default function Configuracoes() {
   // ===== Hooks no topo =====
-  const { config, atualizar, restaurarPadroes } = useConfig();
-  const [vozes, setVozes] = useState<VozInfo[]>([]);
+  const { config, cores, atualizar, restaurarPadroes } = useConfig();
+  const { alternar } = useEscuta();
+  const e = useMemo(() => criarEstilos(cores, config.altoContraste), [cores, config.altoContraste]);
+
   const [endereco, setEndereco] = useState(config.servidorUrl);
   const [campoEmFoco, setCampoEmFoco] = useState(false);
   const [testando, setTestando] = useState(false);
   const [status, setStatus] = useState("");
 
   useEffect(() => {
-    listarVozes()
-      .then(setVozes)
-      .catch(() => setVozes([]));
     return () => parar();
   }, []);
 
@@ -92,7 +89,7 @@ export default function Configuracoes() {
   function voltar() {
     parar();
     if (router.canGoBack()) router.back();
-    else router.replace("/menu");
+    else router.replace("/camera");
   }
 
   async function salvarETestar() {
@@ -109,7 +106,7 @@ export default function Configuracoes() {
       ? "Conectado ao servidor."
       : "Não consegui conectar. Confira o endereço, o Wi-Fi e se o servidor está ligado.";
     setStatus(mensagem);
-    ok ? vibrar.sucesso() : vibrar.erro();
+    if (ok) vibrar.sucesso(); else vibrar.erro();
     falar(mensagem);
   }
 
@@ -127,13 +124,6 @@ export default function Configuracoes() {
     falar("Configurações restauradas para o padrão.");
   }
 
-  const opcoesVoz: Item<string>[] = [
-    { valor: "", rotulo: "Padrão do sistema" },
-    ...vozes.map((v, i) => ({
-      valor: v.id,
-      rotulo: `Voz ${i + 1}${v.melhorQualidade ? " (melhor qualidade)" : ""}`,
-    })),
-  ];
 
   const versao = Constants.expoConfig?.version ?? "1.0.0";
 
@@ -144,18 +134,20 @@ export default function Configuracoes() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <View style={e.topo}>
-          <Pressable
-            onPress={voltar}
-            accessibilityRole="button"
-            accessibilityLabel="Voltar ao menu"
-            hitSlop={8}
-            style={e.voltar}
-          >
-            <Ionicons name="arrow-back" size={28} color={cores.textoPrincipal} />
-          </Pressable>
-          <Text accessibilityRole="header" style={e.titulo}>
-            Configurações
-          </Text>
+          <View style={e.topoEsquerda}>
+            <Pressable
+              onPress={voltar}
+              accessibilityRole="button"
+              accessibilityLabel="Voltar à câmera"
+              hitSlop={8}
+              style={e.voltar}
+            >
+              <Ionicons name="arrow-back" size={28} color={cores.textoPrincipal} />
+            </Pressable>
+            <Text accessibilityRole="header" style={e.titulo}>
+              Configurações
+            </Text>
+          </View>
         </View>
 
         <ScrollView
@@ -163,8 +155,42 @@ export default function Configuracoes() {
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
+          {/* ===== Seção Visual no Topo ===== */}
+          <Secao titulo="Visual" estiloSecao={e.secao} estiloTitulo={e.tituloSecao}>
+            <LinhaOpcoes
+              titulo="Tema"
+              descricao="Escolha entre o modo escuro (mar profundo) e o modo claro (céu claro)."
+              opcoes={TEMAS}
+              valor={config.tema}
+              onChange={(v) => {
+                atualizar({ tema: v });
+                vibrar.confirmar();
+                falar(v === "claro" ? "Tema claro ativado." : "Tema escuro ativado.");
+              }}
+            />
+
+            <LinhaSwitch
+              titulo="Texto em alto contraste"
+              descricao="Reforça as cores de texto e bordas para máxima legibilidade (padrão WCAG AAA)."
+              valor={config.altoContraste}
+              onChange={(v) => {
+                atualizar({ altoContraste: v });
+                vibrar.confirmar();
+                falar(v ? "Alto contraste ativado." : "Alto contraste desativado.");
+              }}
+            />
+          </Secao>
+
           {/* ===== Voz ===== */}
-          <Secao titulo="Voz">
+          <Secao titulo="Voz" estiloSecao={e.secao} estiloTitulo={e.tituloSecao}>
+            <LinhaSwitch
+              titulo="Assistente de voz"
+              descricao="Permite fazer perguntas por voz dizendo 'Farol' ou segurando na tela da câmera."
+              valor={config.escutaAtiva}
+              onChange={async () => {
+                await alternar();
+              }}
+            />
             <LinhaOpcoes
               titulo="Velocidade da fala"
               opcoes={VELOCIDADES}
@@ -172,29 +198,6 @@ export default function Configuracoes() {
               onChange={(v) => {
                 atualizar({ velocidadeFala: v });
                 falar(`Velocidade ${rotuloDe(VELOCIDADES, v)}`);
-              }}
-            />
-            <LinhaOpcoes
-              titulo="Tom da voz"
-              opcoes={TONS}
-              valor={config.tomVoz}
-              onChange={(v) => {
-                atualizar({ tomVoz: v });
-                falar(`Tom ${rotuloDe(TONS, v)}`);
-              }}
-            />
-            <LinhaOpcoes
-              titulo="Voz"
-              descricao={
-                vozes.length === 0
-                  ? "Nenhuma voz em português do Brasil foi encontrada além da padrão."
-                  : undefined
-              }
-              opcoes={opcoesVoz}
-              valor={config.vozId ?? ""}
-              onChange={(v) => {
-                atualizar({ vozId: v || null });
-                falar("Esta é a voz selecionada.");
               }}
             />
             <Botao
@@ -210,32 +213,8 @@ export default function Configuracoes() {
             </Text>
           </Secao>
 
-          {/* ===== Descrições ===== */}
-          <Secao titulo="Descrições">
-            <LinhaOpcoes
-              titulo="Nível de detalhe"
-              descricao="Resumo: até 2 frases. Normal: até 5 frases. Completo: mais detalhes, e demora um pouco mais."
-              opcoes={DETALHES}
-              valor={config.detalhe}
-              onChange={(v) => {
-                atualizar({ detalhe: v });
-                falar(`Nível de detalhe: ${rotuloDe(DETALHES, v)}`);
-              }}
-            />
-          </Secao>
-
-          {/* ===== Câmera e toque ===== */}
-          <Secao titulo="Câmera e toque">
-            <LinhaOpcoes
-              titulo="Qualidade da foto"
-              descricao="Mais qualidade ajuda a ler textos pequenos, mas a resposta demora mais."
-              opcoes={QUALIDADES}
-              valor={config.qualidadeFoto}
-              onChange={(v) => {
-                atualizar({ qualidadeFoto: v });
-                falar(`Qualidade da foto: ${rotuloDe(QUALIDADES, v)}`);
-              }}
-            />
+          {/* ===== Vibração ===== */}
+          <Secao titulo="Vibração" estiloSecao={e.secao} estiloTitulo={e.tituloSecao}>
             <LinhaSwitch
               titulo="Vibração"
               descricao="Vibra ao tirar a foto, ao confirmar e em caso de erro."
@@ -249,14 +228,14 @@ export default function Configuracoes() {
           </Secao>
 
           {/* ===== Servidor ===== */}
-          <Secao titulo="Servidor">
+          <Secao titulo="Servidor" estiloSecao={e.secao} estiloTitulo={e.tituloSecao}>
             <Text style={e.rotulo}>Endereço do servidor</Text>
             <TextInput
               value={endereco}
               onChangeText={setEndereco}
               onFocus={() => setCampoEmFoco(true)}
               onBlur={() => setCampoEmFoco(false)}
-              placeholder={URL_PADRAO || "http://192.168.0.10:8000"}
+              placeholder={URL_PADRAO || "http://192.168.1.11:8000"}
               placeholderTextColor={cores.textoSuave}
               keyboardType="url"
               autoCapitalize="none"
@@ -285,7 +264,7 @@ export default function Configuracoes() {
           </Secao>
 
           {/* ===== Sobre ===== */}
-          <Secao titulo="Sobre">
+          <Secao titulo="Sobre" estiloSecao={e.secao} estiloTitulo={e.tituloSecao}>
             <Text style={e.texto}>Farol, versão {versao}.</Text>
             <Text style={e.texto}>
               As fotos são enviadas ao servidor apenas para gerar a descrição e não são guardadas.
@@ -304,41 +283,91 @@ export default function Configuracoes() {
   );
 }
 
-const e = StyleSheet.create({
-  tela: { flex: 1, backgroundColor: cores.fundo },
-  topo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: espaco.md,
-    paddingHorizontal: espaco.md,
-    paddingTop: espaco.sm,
-    paddingBottom: espaco.sm,
-  },
-  voltar: {
-    width: 52,
-    height: 52,
-    borderRadius: raio.pill,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: cores.superficie,
-  },
-  titulo: { color: cores.textoPrincipal, fontSize: fonte.titulo, fontWeight: "800" },
-  conteudo: { padding: espaco.lg, gap: espaco.xl, paddingBottom: espaco.xl * 2 },
-  secao: { gap: espaco.md },
-  tituloSecao: { color: cores.luzSuave, fontSize: fonte.subtitulo, fontWeight: "800" },
-  rotulo: { color: cores.textoPrincipal, fontSize: fonte.corpo, fontWeight: "700" },
-  campo: {
-    minHeight: 60,
-    paddingHorizontal: espaco.md,
-    borderRadius: raio.md,
-    borderWidth: 2,
-    borderColor: cores.borda,
-    backgroundColor: cores.superficie,
-    color: cores.textoPrincipal,
-    fontSize: fonte.corpo,
-  },
-  campoFoco: { borderColor: cores.luz },
-  nota: { color: cores.textoSecundario, fontSize: fonte.pequeno, lineHeight: 21 },
-  status: { color: cores.luzSuave, fontSize: fonte.corpo, lineHeight: 26 },
-  texto: { color: cores.textoSecundario, fontSize: fonte.corpo, lineHeight: 26 },
-});
+function criarEstilos(cores: PaletaCores, altoContraste: boolean) {
+  const eClaro = cores.modo === "claro";
+
+  return StyleSheet.create({
+    tela: { flex: 1, backgroundColor: cores.fundo },
+    topo: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: espaco.md,
+      paddingTop: espaco.sm,
+      paddingBottom: espaco.sm,
+    },
+    topoEsquerda: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: espaco.md,
+    },
+    voltar: {
+      width: 52,
+      height: 52,
+      borderRadius: raio.pill,
+      justifyContent: "center",
+      alignItems: "center",
+      backgroundColor: cores.superficie,
+      borderWidth: altoContraste ? 2 : eClaro ? 1 : 0,
+      borderColor: cores.borda,
+    },
+    botaoTema: {
+      width: 50,
+      height: 50,
+      borderRadius: raio.pill,
+      backgroundColor: cores.superficie,
+      borderWidth: altoContraste ? 3 : 2,
+      borderColor: cores.borda,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    titulo: {
+      color: cores.textoPrincipal,
+      fontSize: fonte.titulo,
+      fontWeight: "800",
+    },
+    conteudo: { padding: espaco.lg, gap: espaco.xl, paddingBottom: espaco.xl * 2 },
+    secao: { gap: espaco.md },
+    tituloSecao: {
+      color: cores.luzSuave,
+      fontSize: fonte.subtitulo,
+      fontWeight: "800",
+    },
+    rotulo: {
+      color: cores.textoPrincipal,
+      fontSize: fonte.corpo,
+      fontWeight: altoContraste ? "800" : "700",
+    },
+    campo: {
+      minHeight: 60,
+      paddingHorizontal: espaco.md,
+      borderRadius: raio.md,
+      borderWidth: altoContraste ? 3 : 2,
+      borderColor: cores.borda,
+      backgroundColor: cores.superficie,
+      color: cores.textoPrincipal,
+      fontSize: fonte.corpo,
+    },
+    campoFoco: {
+      borderColor: eClaro ? cores.luzForte : cores.luz,
+    },
+    nota: {
+      color: cores.textoSecundario,
+      fontSize: fonte.pequeno,
+      lineHeight: 21,
+      fontWeight: altoContraste ? "600" : "400",
+    },
+    status: {
+      color: cores.luzSuave,
+      fontSize: fonte.corpo,
+      lineHeight: 26,
+      fontWeight: "700",
+    },
+    texto: {
+      color: cores.textoSecundario,
+      fontSize: fonte.corpo,
+      lineHeight: 26,
+      fontWeight: altoContraste ? "600" : "400",
+    },
+  });
+}

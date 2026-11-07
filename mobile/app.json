@@ -4,7 +4,7 @@
     "slug": "farol",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/farol.png",
     "scheme": "mobile",
     "userInterfaceStyle": "dark",
     "ios": {
@@ -17,11 +17,19 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.farol",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
+      ]
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/farol.png"
     },
     "plugins": [
       "expo-router",
@@ -32,11 +40,38 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 76
         }
-      ]
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "O Farol precisa acessar a câmera para descrever o ambiente.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "react-native-vosk",
+        {
+          "models": [
+            "assets/model-pt-0.3"
+          ],
+          "iOSMicrophonePermission": "O Farol precisa acessar o microfone para reconhecer sua fala."
+        }
+      ],
+      "expo-audio"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {
+        "asyncRoutes": {
+          "web": true
+        }
+      },
+      "eas": {
+        "projectId": "a5a26b34-d953-4b5c-b0db-0ce807d206ca"
+      }
     }
   }
 }

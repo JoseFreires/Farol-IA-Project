@@ -10,7 +10,9 @@ import {
 } from "react";
 import { View } from "react-native";
 
-import { cores } from "../theme/tema";
+import { falar } from "../services/fala";
+import { vibrar } from "../services/vibracao";
+import { obterCores, type ModoTema, type PaletaCores } from "../theme/tema";
 import { definirConfig, obterConfig } from "./atual";
 import { normalizar, PADRAO, type Configuracoes } from "./tipos";
 
@@ -19,11 +21,25 @@ const CHAVE = "farol:config:v1";
 
 type Valor = {
   config: Configuracoes;
+  cores: PaletaCores;
+  tema: ModoTema;
+  altoContraste: boolean;
+  alternarTema: () => void;
   atualizar: (parcial: Partial<Configuracoes>) => void;
   restaurarPadroes: () => void;
 };
 
-const Contexto = createContext<Valor | null>(null);
+const VALOR_PADRAO: Valor = {
+  config: PADRAO,
+  cores: obterCores(PADRAO.tema, PADRAO.altoContraste),
+  tema: PADRAO.tema,
+  altoContraste: PADRAO.altoContraste,
+  alternarTema: () => {},
+  atualizar: () => {},
+  restaurarPadroes: () => {},
+};
+
+const Contexto = createContext<Valor>(VALOR_PADRAO);
 
 export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
   const [config, setConfig] = useState<Configuracoes>(PADRAO);
@@ -64,19 +80,43 @@ export function ConfiguracoesProvider({ children }: { children: ReactNode }) {
 
   const restaurarPadroes = useCallback(() => salvar(PADRAO), [salvar]);
 
-  const valor = useMemo(
-    () => ({ config, atualizar, restaurarPadroes }),
-    [config, atualizar, restaurarPadroes],
+  const cores = useMemo(
+    () => obterCores(config.tema, config.altoContraste),
+    [config.tema, config.altoContraste],
   );
 
-  // Evita mostrar telas com valores errados no primeiro instante
-  if (!pronto) return <View style={{ flex: 1, backgroundColor: cores.fundo }} />;
+  const alternarTema = useCallback(() => {
+    const proximo: ModoTema = config.tema === "escuro" ? "claro" : "escuro";
+    atualizar({ tema: proximo });
+    vibrar.confirmar();
+    falar(proximo === "claro" ? "Tema claro ativado." : "Tema escuro ativado.");
+  }, [config.tema, atualizar]);
 
-  return <Contexto.Provider value={valor}>{children}</Contexto.Provider>;
+  const valor = useMemo(
+    () => ({
+      config,
+      cores,
+      tema: config.tema,
+      altoContraste: config.altoContraste,
+      alternarTema,
+      atualizar,
+      restaurarPadroes,
+    }),
+    [config, cores, alternarTema, atualizar, restaurarPadroes],
+  );
+
+  return (
+    <Contexto.Provider value={valor}>
+      {!pronto ? <View style={{ flex: 1, backgroundColor: cores.fundo }} /> : children}
+    </Contexto.Provider>
+  );
 }
 
 export function useConfig(): Valor {
   const valor = useContext(Contexto);
-  if (!valor) throw new Error("useConfig deve ser usado dentro do ConfiguracoesProvider");
-  return valor;
+  return valor ?? VALOR_PADRAO;
+}
+
+export function useTema(): Valor {
+  return useConfig();
 }

@@ -1,0 +1,8 @@
+path: C:\Users\riana\Farol-IA-Project\backend\treinamento
+train: images/train
+val: images/val
+
+nc: 1
+
+names: 
+  0: "degrau"

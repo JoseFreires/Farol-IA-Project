@@ -1,6 +1,8 @@
+import { useMemo } from "react";
 import { Pressable, StyleSheet, Switch, Text, View } from "react-native";
 
-import { cores, espaco, fonte } from "../theme/tema";
+import { useConfig } from "../settings/ConfiguracoesContext";
+import { espaco, fonte, type PaletaCores } from "../theme/tema";
 
 type Props = {
   titulo: string;
@@ -12,6 +14,9 @@ type Props = {
 // A linha inteira é o controle (alvo de toque grande). O Switch visual fica escondido
 // do leitor de tela para não ser anunciado duas vezes.
 export function LinhaSwitch({ titulo, descricao, valor, onChange }: Props) {
+  const { cores, config } = useConfig();
+  const e = useMemo(() => criarEstilos(cores, config.altoContraste), [cores, config.altoContraste]);
+
   return (
     <Pressable
       onPress={() => onChange(!valor)}
@@ -34,23 +39,43 @@ export function LinhaSwitch({ titulo, descricao, valor, onChange }: Props) {
         <Switch
           value={valor}
           onValueChange={onChange}
-          trackColor={{ false: cores.borda, true: cores.luz }}
-          thumbColor={cores.textoPrincipal}
-          ios_backgroundColor={cores.borda}
+          trackColor={{
+            false: cores.modo === "claro" ? "#CAD8E8" : cores.borda,
+            true: cores.luz,
+          }}
+          thumbColor={
+            valor
+              ? cores.textoSobreLuz
+              : cores.modo === "claro"
+              ? "#829AB8"
+              : "#8FA5C4"
+          }
+          ios_backgroundColor={cores.modo === "claro" ? "#CAD8E8" : cores.borda}
         />
       </View>
     </Pressable>
   );
 }
 
-const e = StyleSheet.create({
-  linha: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: espaco.md,
-    minHeight: 64,
-  },
-  textos: { flex: 1, gap: 2 },
-  titulo: { color: cores.textoPrincipal, fontSize: fonte.corpo, fontWeight: "700" },
-  descricao: { color: cores.textoSecundario, fontSize: fonte.pequeno, lineHeight: 21 },
-});
+function criarEstilos(cores: PaletaCores, altoContraste: boolean) {
+  return StyleSheet.create({
+    linha: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: espaco.md,
+      minHeight: 64,
+    },
+    textos: { flex: 1, gap: 2 },
+    titulo: {
+      color: cores.textoPrincipal,
+      fontSize: fonte.corpo,
+      fontWeight: altoContraste ? "800" : "700",
+    },
+    descricao: {
+      color: cores.textoSecundario,
+      fontSize: fonte.pequeno,
+      lineHeight: 21,
+      fontWeight: altoContraste ? "600" : "400",
+    },
+  });
+}
